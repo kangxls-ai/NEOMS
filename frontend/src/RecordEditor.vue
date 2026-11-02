@@ -1,7 +1,9 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
+import { ElMessageBox } from "element-plus";
 import FormFields from "./FormFields.vue";
 import { fields } from "./schema";
+import { operationTemplate } from "./operationTemplates";
 const props = defineProps({
   model: Object,
   kind: String,
@@ -10,7 +12,34 @@ const props = defineProps({
 });
 const emit = defineEmits(["upload", "preview"]);
 const pointIndex = ref(0);
-const selectedHazards = ref([]);
+const selectedHazards = ref((props.model.hazards || []).map((x) => x.id));
+let restoringSubtype = false;
+watch(
+  () => props.model.subtype,
+  async (next, old) => {
+    if (restoringSubtype) {
+      restoringSubtype = false;
+      return;
+    }
+    if (
+      props.kind !== "workTickets" ||
+      !old ||
+      !(props.model.measures || []).length
+    )
+      return;
+    try {
+      await ElMessageBox.confirm(
+        "切换票种会清空当前安全措施，基础信息与危险点保留。是否继续？",
+        "切换票种",
+        { type: "warning" },
+      );
+      props.model.measures = [];
+    } catch {
+      restoringSubtype = true;
+      props.model.subtype = old;
+    }
+  },
+);
 const isRule = computed(() => props.kind.endsWith("Rules"));
 const isTicket = computed(() => props.kind.endsWith("Tickets"));
 const groupNames = computed(
@@ -38,6 +67,13 @@ const groupNames = computed(
     })[props.model.subtype] || [],
 );
 const point = computed(() => props.model.points?.[pointIndex.value]);
+watch(
+  point,
+  (p) => {
+    if (p && !p.deviceIds) p.deviceIds = p.deviceId ? [p.deviceId] : [];
+  },
+  { immediate: true },
+);
 function addMeasure() {
   (props.model.measures ||= []).push({
     id: crypto.randomUUID(),
@@ -50,7 +86,7 @@ function addPoint() {
   (props.model.points ||= []).push({
     id: crypto.randomUUID(),
     name: "新巡检点",
-    deviceId: "",
+    deviceIds: [],
     items: [],
   });
   pointIndex.value = props.model.points.length - 1;
@@ -109,6 +145,44 @@ const ranges = [
     values: Array.from({ length: 31 }, (_, i) => ["" + (i + 1), i + 1 + "日"]),
   },
 ];
+watch(
+  () => props.model.firstType,
+  () => {
+    if (props.kind !== "operationTickets") return;
+    const allowed =
+      props.model.firstType === "PT操作票"
+        ? ["运行转检修", "检修转运行"]
+        : props.model.firstType === "集电线路操作票"
+          ? null
+          : [
+              "运行转检修",
+              "检修转运行",
+              "运行转冷备用",
+              "冷备用转检修",
+              "检修转冷备用",
+              "冷备用转运行",
+            ];
+    if (allowed && !allowed.includes(props.model.secondType))
+      props.model.secondType = "";
+  },
+);
+async function loadTemplate() {
+  if (props.model.items?.length) {
+    try {
+      await ElMessageBox.confirm(
+        "载入模板将替换当前未提交的操作项目；可继续编辑、增删与排序。",
+        "载入演示模板",
+      );
+    } catch {
+      return;
+    }
+  }
+  props.model.items = operationTemplate(
+    props.model.firstType,
+    props.model.secondType,
+    props.model.deviceName,
+  );
+}
 </script>
 <template>
   <el-form label-position="top"
@@ -118,6 +192,7 @@ const ranges = [
       :model="model"
       :data="data"
       :user="user"
+      :kind="kind"
     />
     <template v-if="kind === 'inspectionRules'"
       ><div class="section-title">线路 / 巡检点设置</div>
@@ -135,15 +210,31 @@ const ranges = [
         </div>
         <div v-if="point" class="point-content">
           <el-input v-model="point.name" placeholder="巡检点名称" /><el-select
-            v-model="point.deviceId"
+            v-model="point.deviceIds"
+            multiple
             filterable
             placeholder="选择本点设备"
             ><el-option
-              v-for="d in data.devices"
+              v-for="d in (data.devices || []).filter(
+                (x) => !model.stationId || x.stationId === model.stationId,
+              )"
               :key="d.id"
               :label="d.name + ' · ' + d.deviceCode"
               :value="d.id" /></el-select
           ><el-table :data="point.items"
+            ><el-table-column label="适用设备" width="210"
+              ><template #default="{ row }"
+                ><el-select
+                  v-model="row.deviceId"
+                  clearable
+                  placeholder="本点全部设备"
+                  ><el-option
+                    v-for="id in point.deviceIds"
+                    :key="id"
+                    :value="id"
+                    :label="
+                      data.devices.find((x) => x.id === id)?.name || id
+                    " /></el-select></template></el-table-column
             ><el-table-column label="巡检项名称"
               ><template #default="{ row }"
                 ><el-input v-model="row.name" /></template></el-table-column
@@ -249,10 +340,12 @@ const ranges = [
       <template v-if="kind === 'operationTickets'"
         ><div class="section-title">操作任务 / 顺序项目</div>
         <el-alert
-          title="演示模板：原型未给全的项目请按实际作业补充；此处不作为正式操作规程。"
+          title="演示模板：集电线路运行转检修保留原型13项，文字不完整处单独标注；其他转换为待补占位，不作为正式操作规程。"
           :closable="false"
           type="info"
-        /><el-table :data="model.items || []"
+        /><el-button class="mt mb" type="primary" plain @click="loadTemplate"
+          >载入所选类型演示模板</el-button
+        ><el-table :data="model.items || []"
           ><el-table-column
             label="序号"
             type="index"

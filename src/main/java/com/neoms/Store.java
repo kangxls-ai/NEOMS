@@ -25,7 +25,7 @@ public class Store {
     Map<String,Object> insert(String kind,Map<String,Object> data){checkKind(kind);var d=new LinkedHashMap<>(data);d.remove("_revision");d.putIfAbsent("id",kind+"-"+UUID.randomUUID().toString().substring(0,12));d.put("kind",kind);jdbc.update("INSERT INTO neoms_records(id,kind,payload,revision) VALUES(?,?,?,1)",d.get("id"),kind,stringify(d));d.put("_revision",1);return d;}
     Map<String,Object> save(Map<String,Object> d){var copy=new LinkedHashMap<>(d);int rev=((Number)copy.remove("_revision")).intValue();int count=jdbc.update("UPDATE neoms_records SET payload=?,revision=revision+1 WHERE id=? AND revision=?",stringify(copy),copy.get("id"),rev);if(count!=1)throw new IllegalStateException("记录已被他人更新，请刷新后重试");copy.put("_revision",rev+1);return copy;}
     void history(Map<String,Object> d,String actor,String action,String time){jdbc.update("INSERT INTO neoms_history(record_id,kind,actor,action_name,happened_at,snapshot) VALUES(?,?,?,?,?,?)",d.get("id"),d.get("kind"),actor,action,time,stringify(d));}
-    List<Map<String,Object>> history(String id){return jdbc.queryForList("SELECT actor,action_name AS action,happened_at AS time,snapshot FROM neoms_history WHERE record_id=? ORDER BY id DESC",id);}
+    List<Map<String,Object>> history(String id){return jdbc.queryForList("SELECT id,actor,action_name AS action,happened_at AS time,snapshot FROM neoms_history WHERE record_id=? ORDER BY id DESC",id);}
     String stringify(Object o){try{return json.writeValueAsString(o);}catch(Exception e){throw new IllegalArgumentException("数据无法序列化");}}
     Map<String,Object> parse(String s){try{return json.readValue(s,new TypeReference<LinkedHashMap<String,Object>>(){});}catch(Exception e){throw new IllegalStateException("记录格式错误");}}
 }

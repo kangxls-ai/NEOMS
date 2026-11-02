@@ -5,22 +5,63 @@ const props = defineProps({
   fields: Array,
   data: Object,
   user: Object,
+  kind: String,
 });
 function opts(f) {
   if (f.type === "source") {
     let a = ["warning", "alarm"].includes(props.model.sourceType)
       ? props.data.alerts
       : props.data.orders;
-    return (a || []).map((x) => ({
-      label: `${x.code} · ${x.name}`,
+    return (a || [])
+      .filter(
+        (x) => !props.model.stationId || x.stationId === props.model.stationId,
+      )
+      .filter((x) =>
+        ["warning", "alarm"].includes(props.model.sourceType)
+          ? x.level === props.model.sourceType
+          : x.type === props.model.sourceType,
+      )
+      .map((x) => ({
+        label: `${x.code} · ${x.name}`,
+        value: x.id,
+      }));
+  }
+  if (["ref", "multiRef"].includes(f.type)) {
+    let list = (props.data[f.options] || []).filter(
+      (x) => x.status !== "removed",
+    );
+    if (props.kind === "workTickets" && f.key === "leaderId") {
+      let eligible = (props.data.duties || [])
+        .filter(
+          (x) =>
+            x.status !== "removed" &&
+            String(x.year) === (props.data.now || "2026").slice(0, 4) &&
+            x.stationId === props.model.stationId &&
+            x.dutyType === "工作负责人",
+        )
+        .map((x) => x.personId);
+      list = list.filter(
+        (x) => eligible.includes(x.id) || x.id === props.model.leaderId,
+      );
+    }
+    if (f.options === "devices" && props.model.stationId)
+      list = list.filter((x) => x.stationId === props.model.stationId);
+    return list.map((x) => ({
+      label: `${x.name}${x.code && x.kind !== "people" ? " · " + x.code : ""}${f.options === "orders" ? " · " + (x.type || "") + " · " + (x.createdAt || "") + " · " + ((props.data.people || []).find((p) => p.id === x.assigneeId)?.name || "待分配") : ""}`,
       value: x.id,
     }));
   }
-  if (["ref", "multiRef"].includes(f.type))
-    return (props.data[f.options] || []).map((x) => ({
-      label: `${x.name}${x.code && x.kind !== "people" ? " · " + x.code : ""}`,
-      value: x.id,
-    }));
+  if (f.key === "secondType") {
+    let count =
+      props.model.firstType === "PT操作票"
+        ? 2
+        : props.model.firstType === "集电线路操作票"
+          ? 8
+          : 6;
+    return (f.options || [])
+      .slice(0, count)
+      .map((x) => ({ label: x, value: x }));
+  }
   return Array.isArray(f.options)
     ? f.options.map((x) => ({ label: x, value: x }))
     : Object.entries(f.options || {}).map(([value, label]) => ({
@@ -44,7 +85,12 @@ function opts(f) {
         :multiple="f.type === 'multiRef'"
         filterable
         clearable
-        :disabled="f.key === 'operatorId'"
+        :disabled="
+          f.key === 'operatorId' ||
+          (kind === 'defects' &&
+            model.id &&
+            ['sourceType', 'sourceId'].includes(f.key))
+        "
         placeholder="请选择"
         ><el-option
           v-for="o in opts(f)"

@@ -16,8 +16,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class WorkflowTest {
  @Autowired Engine engine; @Autowired Store db;
  final String actor="person-field";
- Map<String,Object> act(String id,String action,Map<String,Object> p){return engine.act(id,action,p,actor);}
- Map<String,Object> ticket(String kind,String subtype,List<String> orders){return engine.create(kind,m("name","测试票据","subtype",subtype,"deviceName","01号逆变器","description","演示检修","leaderId",actor,"stationId","station-1","plannedStart",engine.now(),"plannedEnd","2026-11-02T18:00:00","orderIds",orders,"hazards",List.of(m("analysis","测试风险","measures","测试预控")),"measures",List.of(m("id","m1","name","隔离确认","executed",false)),"items",List.of(m("id","i1","name","确认设备","executed",false))),actor);}
+ Map<String,Object> act(String id,String action,Map<String,Object> p){if(action.equals("approve"))p.putIfAbsent("checked",true);if(action.equals("terminate")){p.putIfAbsent("workEndAt",engine.now());p.putIfAbsent("ticketEndAt",engine.now());p.putIfAbsent("siteRestored",true);p.putIfAbsent("personnelWithdrawn",true);p.putIfAbsent("guardianId",actor);p.putIfAbsent("riskAcknowledged",true);}return engine.act(id,action,p,actor);}
+ Map<String,Object> ticket(String kind,String subtype,List<String> orders){return engine.create(kind,m("name","测试票据","subtype",subtype,"firstType","集电线路操作票","secondType","运行转检修","issuerId","person-signer","supervisorId","person-permit","deviceName","01号逆变器","description","演示检修","leaderId",actor,"stationId","station-1","plannedStart",engine.now(),"plannedEnd","2026-11-02T18:00:00","orderIds",orders,"hazards",List.of(m("id","h1","analysis","测试风险","measures","测试预控")),"measures",List.of(m("id","m1","name","隔离确认","executed",false)),"items",List.of(m("id","i1","name","确认设备","executed",false))),actor);}
  @Test void completeAlarmToAcceptanceWithTicketGates(){
   var a=act("device-1","sample",m("temperature",84));String aid=s(a,"id");
   act("device-1","sample",m("temperature",85));assertEquals(2,db.read(aid).get("count"));
@@ -60,6 +60,27 @@ class WorkflowTest {
   engine.create("shifts",m("name","另一场站","stationId","station-2","assigneeId","person-chief","startAt","2026-11-02T08:00:00","endAt","2026-11-02T20:00:00"),actor);
   assertEquals("person-chief",engine.shiftAt(LocalDateTime.parse(engine.now()),"station-2").orElseThrow().get("assigneeId"));
   assertThrows(IllegalArgumentException.class,()->engine.create("shifts",m("stationId","station-2","assigneeId",actor,"startAt","2026-11-02T09:00:00","endAt","2026-11-02T21:00:00"),actor));
+ }
+ @Test void multipleDevicesAtPointAndSpecificItems(){
+  var rule=engine.create("inspectionRules",m("name","多设备线路","stationId","station-1","completionDays",1,"times",List.of("10:00"),"points",List.of(m("id","p1","name","逆变器阵区","deviceIds",List.of("device-1","device-2"),"items",List.of(m("name","温度","type","record"),m("name","专用项","type","observation","deviceId","device-2"))))),actor);
+  engine.tick("2026-11-02T10:00:00",actor);var order=db.list("orders").stream().filter(x->s(x,"ruleId").equals(s(rule,"id"))).findFirst().orElseThrow();
+  assertEquals(3,items(order,"items").size());assertEquals(2,items(order,"items").stream().filter(x->s(x,"deviceId").equals("device-2")).count());
+ }
+ @Test void contactRequiresHazardExecutionAndProcessHasTypedFields(){
+  String id=s(ticket("workTickets","contact",List.of()),"id");act(id,"submit",m());act(id,"approve",m());
+  db.jdbc().update("INSERT INTO neoms_files VALUES('contact-file','test.txt','text/plain','test.txt')");
+  assertThrows(IllegalArgumentException.class,()->act(id,"terminate",m("description","现场恢复","attachmentIds",List.of("contact-file"))));
+  act(id,"hazard",m("itemId","h1"));assertEquals("terminated",s(act(id,"terminate",m("description","现场恢复","attachmentIds",List.of("contact-file"))),"status"));
+  String other=s(ticket("workTickets","electrical1",List.of()),"id");act(other,"submit",m());act(other,"approve",m());act(other,"approve",m());act(other,"approve",m());
+  assertThrows(IllegalArgumentException.class,()->act(other,"process",m("processType","工作负责人变更","description","交接")));
+  var result=act(other,"process",m("processType","工作负责人变更","description","交接","eventAt",engine.now(),"oldLeaderId",actor,"newLeaderId","person-permit","approvedBy","person-signer","approvalAt",engine.now()));
+  assertEquals("person-permit",items(result,"processRecords").getFirst().get("newLeaderId"));
+ }
+ @Test void invalidOperationSubtypeAndUncheckedPermitRejected(){
+  var bad=ticket("operationTickets","operation",List.of());bad.put("firstType","PT操作票");bad.put("secondType","运行转冷备用");engine.edit(s(bad,"id"),bad,actor);
+  assertThrows(IllegalArgumentException.class,()->act(s(bad,"id"),"submit",m()));
+  String id=s(ticket("workTickets","electrical1",List.of()),"id");act(id,"submit",m());act(id,"approve",m());
+  assertThrows(IllegalArgumentException.class,()->act(id,"approve",m("checked",false)));
  }
  @Test void materialAmountAndPauseKeepDeadline(){
   var before=db.read("order-6");String due=s(before,"dueAt");act("order-6","pause",m("reason","待备件"));assertEquals(due,s(db.read("order-6"),"dueAt"));

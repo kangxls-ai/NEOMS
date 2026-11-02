@@ -32,6 +32,13 @@ import {
 } from "./schema";
 import FormFields from "./FormFields.vue";
 import RecordEditor from "./RecordEditor.vue";
+import BusinessList from "./BusinessList.vue";
+import { handlers } from "./workflow";
+import TicketExtra from "./TicketExtra.vue";
+import HistoryPanel from "./HistoryPanel.vue";
+import BusinessContext from "./BusinessContext.vue";
+import Glossary from "./Glossary.vue";
+import { operationTemplate } from "./operationTemplates";
 const user = ref(null),
   users = ref([]),
   data = ref({}),
@@ -67,6 +74,7 @@ const user = ref(null),
   importText = ref(""),
   importPreview = ref([]),
   messagesDialog = ref(false);
+const businessDomain = ref("集中式场站运维");
 const clone = (x) => JSON.parse(JSON.stringify(x));
 async function api(url, method = "GET", body) {
   const opts = { method, credentials: "same-origin" };
@@ -344,17 +352,27 @@ const counts = computed(() => ({
   ).length,
   overdue: (data.value.orders || []).filter(overdue).length,
 }));
+const allTodos = computed(() => [
+  ...(data.value.alerts || []).filter((x) => x.status === "pending"),
+  ...(data.value.defects || []).filter((x) => x.status === "pendingApproval"),
+  ...(data.value.orders || []).filter(
+    (x) => !["closed", "completed"].includes(x.status),
+  ),
+  ...(data.value.workTickets || []).filter((x) =>
+    ["pendingSign", "pendingConfirm", "pendingPermit"].includes(x.status),
+  ),
+]);
+const focusMine = ref(true);
 const todos = computed(() =>
-  [
-    ...(data.value.alerts || []).filter((x) => x.status === "pending"),
-    ...(data.value.defects || []).filter((x) => x.status === "pendingApproval"),
-    ...(data.value.orders || []).filter(
-      (x) => !["closed", "completed"].includes(x.status),
-    ),
-    ...(data.value.workTickets || []).filter((x) =>
-      ["pendingSign", "pendingConfirm", "pendingPermit"].includes(x.status),
-    ),
-  ].slice(0, 12),
+  allTodos.value
+    .filter(
+      (x) =>
+        !focusMine.value ||
+        user.value?.role === "管理员" ||
+        handlers(x, data.value).ids.includes(user.value?.id) ||
+        (x.kind === "alerts" && user.value?.role === "调度"),
+    )
+    .slice(0, 12),
 );
 const blockedTickets = computed(
   () =>
@@ -434,6 +452,14 @@ const detailFields = computed(() => {
     "permittedBy",
     "terminatedBy",
     ...(fields[r.kind] || []).map((x) => x.key),
+    "approvedStart",
+    "approvedEnd",
+    "signedNote",
+    "confirmedNote",
+    "permittedNote",
+    "executionEndedAt",
+    "finishedAt",
+    "sampledAt",
     "plannedAt",
     "dueAt",
     "acceptedAt",
@@ -547,37 +573,58 @@ function addHours(str, h) {
 }
 function openEditor(k, r, extra = {}) {
   editKind.value = k;
-  draft.value = r
-    ? clone(r)
-    : {
-        name: "",
-        stationId: station.value || "station-1",
-        level: "一般缺陷",
-        sourceType: "manual",
-        completionDays: 1,
-        months: [],
-        weeks: [],
-        weekdays: [],
-        days: [],
-        times: ["10:00"],
-        points: [],
-        deviceIds: [],
-        memberIds: [],
-        orderIds: [],
-        commandIds: [],
-        noticeIds: [],
-        subtype: "electrical1",
-        measures: [],
-        items: [],
-        hazards: [],
-        evidence: [],
-        year: "2026",
-        operatorId: user.value.id,
-        leaderId: user.value.id,
-        plannedStart: data.value.now,
-        plannedEnd: addHours(data.value.now, 4),
-        ...extra,
-      };
+  let base = { name: "", stationId: station.value || "station-1" };
+  if (k === "defects")
+    Object.assign(base, {
+      level: "一般缺陷",
+      sourceType: "manual",
+      evidence: [],
+    });
+  if (k.endsWith("Rules"))
+    Object.assign(base, {
+      completionDays: 1,
+      months: [],
+      weeks: [],
+      weekdays: [],
+      days: [],
+      times: ["10:00"],
+      ...(k === "inspectionRules"
+        ? { points: [], inspectionType: "场内巡检" }
+        : { deviceIds: [], workType: "定期维护" }),
+    });
+  if (k.endsWith("Tickets"))
+    Object.assign(base, {
+      memberIds: [],
+      orderIds: [],
+      commandIds: [],
+      noticeIds: [],
+      hazards: [],
+      leaderId: "person-field",
+      plannedStart: data.value.now,
+      plannedEnd: addHours(data.value.now, 4),
+      ...(k === "workTickets"
+        ? { subtype: "electrical1", measures: [] }
+        : {
+            operatorId: user.value.id,
+            issuerId: currentShift.value?.assigneeId || user.value.id,
+            supervisorId: "person-permit",
+            firstType: "集电线路操作票",
+            secondType: "运行转检修",
+            operationType: "监护下操作",
+            items: [],
+          }),
+    });
+  if (k === "duties") base.year = data.value.now.slice(0, 4);
+  if (k === "shifts")
+    Object.assign(base, {
+      memberIds: [],
+      startAt: addHours(data.value.now, 1),
+      endAt: addHours(data.value.now, 13),
+      assigneeId: "person-field",
+      chiefId: "person-chief",
+    });
+  if (k === "commands" || k === "notices") base.issuerId = user.value.id;
+  draft.value = r ? clone(r) : { ...base, ...extra };
   for (const f of fields[k] || [])
     if (f.type === "number" && draft.value[f.key] != null)
       draft.value[f.key] = Number(draft.value[f.key]);
@@ -604,19 +651,7 @@ function fillTicket() {
       (op ? data.value.operationHazards : data.value.workHazards).slice(0, 1),
     ),
   });
-  if (op)
-    d.items = [
-      {
-        id: crypto.randomUUID(),
-        name: "接令、设备名称及本次任务核对（演示模板）",
-        executed: false,
-      },
-      {
-        id: crypto.randomUUID(),
-        name: "作业前状态检查与过程记录（演示模板，按实际规程补全）",
-        executed: false,
-      },
-    ];
+  if (op) d.items = operationTemplate(d.firstType, d.secondType, d.deviceName);
   else
     d.measures =
       d.subtype === "contact"
@@ -665,7 +700,19 @@ async function openAction(a, r = current.value, extra = {}) {
     date: data.value.now?.slice(0, 10),
     temperature: 83,
     level: "warning",
+    defectLevel: "一般缺陷",
     processType: "工作负责人变更",
+    eventAt: data.value.now,
+    oldLeaderId: r?.leaderId,
+    oldMemberIds: clone(r?.memberIds || []),
+    newMemberIds: clone(r?.memberIds || []),
+    approvalAt: data.value.now,
+    approvedBy: user.value.id,
+    workEndAt: data.value.now,
+    ticketEndAt: data.value.now,
+    guardianId: r?.supervisorId || user.value.id,
+    removedGroundLines: 0,
+    openedGroundSwitches: 0,
     approvedStart: r?.plannedStart,
     approvedEnd: r?.plannedEnd,
     ...extra,
@@ -682,7 +729,7 @@ async function openAction(a, r = current.value, extra = {}) {
   } else if (
     a === "approve" &&
     r.kind.endsWith("Tickets") &&
-    r.status === "pendingSign"
+    ["pendingSign", "pendingConfirm", "pendingPermit"].includes(r.status)
   ) {
     actionDialog.value = true;
   } else if (actionFields[a]) actionDialog.value = true;
@@ -698,6 +745,7 @@ async function openAction(a, r = current.value, extra = {}) {
 }
 async function performAction(a, p) {
   if (a === "terminate") p.attachmentIds = actionUploads.value.map((x) => x.id);
+  if (a === "confirm") p.evidence = clone(actionUploads.value);
   await api("/records/" + recordId.value + "/actions/" + a, "POST", p);
   actionDialog.value = false;
   await refresh();
@@ -787,6 +835,28 @@ async function executeStep(it) {
     await loadHistory(recordId.value);
   });
 }
+async function executeHazard(it) {
+  await safe(async () => {
+    await api("/records/" + recordId.value + "/actions/hazard", "POST", {
+      itemId: it.id,
+    });
+    await refresh();
+    await loadHistory(recordId.value);
+  });
+}
+function sparkline(d) {
+  let samples = d.samples || [];
+  if (!samples.length) return "";
+  let values = samples.map((x) => Number(x.temperature)),
+    max = Math.max(...values, Number(d.limit || 75)) + 5,
+    min = Math.min(...values) - 5;
+  return values
+    .map(
+      (v, i) =>
+        `${i ? "L" : "M"}${samples.length > 1 ? (i / (samples.length - 1)) * 440 : 220} ${90 - ((v - min) / (max - min)) * 80}`,
+    )
+    .join(" ");
+}
 async function previewRule(r) {
   await safe(async () => {
     previewRows.value = await api("/rules/preview", "POST", r);
@@ -799,7 +869,11 @@ const shiftRows = computed(() =>
       .sort((a, b) => a.startAt.localeCompare(b.startAt)),
   ),
   dayShifts = computed(() =>
-    shiftRows.value.filter((x) => x.startAt.startsWith(selectedDate.value)),
+    shiftRows.value.filter(
+      (x) =>
+        x.startAt < selectedDate.value + "T23:59:59" &&
+        x.endAt > selectedDate.value + "T00:00:00",
+    ),
   ),
   currentShift = computed(() =>
     shiftRows.value.find(
@@ -1103,9 +1177,36 @@ onMounted(async () => {
     </aside>
     <main class="main">
       <div class="breadcrumb">
+        <el-select
+          v-model="businessDomain"
+          size="small"
+          class="business-domain"
+          style="width: 190px"
+          ><el-option
+            v-for="d in [
+              '集中式场站运维',
+              '分布式能源',
+              '户用储能',
+              '能碳管理',
+              '全部',
+            ]"
+            :key="d"
+            :value="d"
+            :label="d"
+        /></el-select>
         {{ root }} <span>/</span> {{ title }}
         <span v-if="current">/ {{ current.code }}</span>
       </div>
+      <el-alert
+        v-if="!['集中式场站运维', '全部'].includes(businessDomain)"
+        :title="
+          businessDomain +
+          '本次仅保留业务域入口，以下仍为已定义的场站运行演示数据。'
+        "
+        type="info"
+        :closable="false"
+        class="mb"
+      />
       <template v-if="page === 'dashboard'"
         ><section class="welcome">
           <div>
@@ -1150,7 +1251,11 @@ onMounted(async () => {
           <section class="panel">
             <div class="panel-title">
               <b>业务待办</b
-              ><el-button link type="primary" @click="nav('orders')"
+              ><el-switch
+                v-model="focusMine"
+                active-text="当前视角"
+                inactive-text="全部"
+              /><el-button link type="primary" @click="nav('orders')"
                 >查看全部工单</el-button
               >
             </div>
@@ -1299,16 +1404,15 @@ onMounted(async () => {
             >
               <path d="M0 85H440M0 45H440" stroke="#e7edf6" />
               <path
-                :d="
-                  d.temperature >= 75
-                    ? 'M0 82L50 78L100 68L150 60L200 45L250 30L300 22L350 18L440 14'
-                    : 'M0 65L60 62L120 68L180 62L240 65L300 59L360 62L440 60'
-                "
+                :d="sparkline(d)"
                 fill="none"
                 stroke="#5b78ff"
                 stroke-width="3"
               />
             </svg>
+            <el-button link type="primary" @click="nav('devices', d.id)"
+              >最近采样 {{ fmt(d.sampledAt) }} · 查看记录</el-button
+            >
             <div class="device-footer">
               <span>演示阈值 {{ d.limit }}℃</span
               ><el-button
@@ -1339,6 +1443,19 @@ onMounted(async () => {
             >
           </div>
         </div>
+        <div class="filters mb">
+          <el-select
+            v-model="station"
+            clearable
+            placeholder="全部场站"
+            style="width: 240px"
+            ><el-option
+              v-for="s in data.stations"
+              :key="s.id"
+              :value="s.id"
+              :label="s.name"
+          /></el-select>
+        </div>
         <div class="calendar-grid">
           <section class="panel">
             <el-calendar v-model="calendarDate"
@@ -1346,14 +1463,21 @@ onMounted(async () => {
                 ><div class="calendar-cell" @click="selectedDate = cell.day">
                   <span>{{ cell.day.slice(-2) }}</span>
                   <div
-                    v-for="s in shiftRows.filter((x) =>
-                      x.startAt.startsWith(cell.day),
+                    v-for="s in shiftRows.filter(
+                      (x) =>
+                        x.startAt < cell.day + 'T23:59:59' &&
+                        x.endAt > cell.day + 'T00:00:00',
                     )"
                     :key="s.id"
                     class="shift-chip"
                     @click.stop="selectedDate = cell.day"
                   >
-                    <b>{{ s.name }} · {{ labelId(s.assigneeId) }}</b
+                    <b
+                      >{{
+                        s.startAt.slice(0, 10) !== cell.day
+                          ? "↳ 上日延续 · "
+                          : ""
+                      }}{{ s.name }} · {{ labelId(s.assigneeId) }}</b
                     ><small
                       >{{ s.startAt.slice(11, 16) }}—{{
                         s.endAt.slice(0, 10) !== cell.day ? "次日" : ""
@@ -1433,7 +1557,15 @@ onMounted(async () => {
         <template v-if="logShift"
           ><section class="panel">
             <div class="panel-title">
-              <b>班前交代</b><span>来自上一实际班次</span>
+              <b>班前交代</b
+              ><span
+                >来自上一实际班次 · 值长 {{ labelId(logShift.chiefId) }} ·
+                值班人员
+                {{
+                  (logShift.memberIds || []).map(labelId).join("、") ||
+                  "本班负责人"
+                }}</span
+              >
             </div>
             <p v-if="previousShift?.handover">{{ previousShift.handover }}</p>
             <el-alert
@@ -1511,6 +1643,7 @@ onMounted(async () => {
             <p>固定流程与职责来源，只读展示。</p>
           </div>
         </div>
+        <Glossary v-if="page === 'guide'" />
         <section
           class="panel"
           v-for="w in [
@@ -1665,7 +1798,11 @@ onMounted(async () => {
                   name="history"
               /></el-tabs>
               <template v-if="detailTab === 'overview'"
-                ><el-descriptions :column="2" border
+                ><BusinessContext
+                  :record="current"
+                  :data="data"
+                  @view="gotoRecord"
+                /><el-descriptions :column="2" border
                   ><el-descriptions-item
                     v-for="k in detailFields"
                     :key="k"
@@ -1680,7 +1817,12 @@ onMounted(async () => {
                     :key="p.id"
                     class="point-summary"
                   >
-                    <b>{{ p.name }} · {{ labelId(p.deviceId) }}</b>
+                    <b
+                      >{{ p.name }} ·
+                      {{
+                        (p.deviceIds || [p.deviceId]).map(labelId).join("、")
+                      }}</b
+                    >
                     <p v-for="it in p.items" :key="it.id">
                       {{ it.name }} · {{ typ(it.type) }} {{ it.unit }}
                     </p>
@@ -1840,7 +1982,14 @@ onMounted(async () => {
                     "
                     ><el-table-column label="点 / 设备 / 项目" min-width="240"
                       ><template #default="{ row }"
-                        ><b>{{ row.point || labelId(row.deviceId) }}</b>
+                        ><b>{{ row.point || labelId(row.deviceId) }}</b
+                        ><small
+                          >{{ labelId(row.deviceId) }} ·
+                          {{
+                            data.devices?.find((x) => x.id === row.deviceId)
+                              ?.deviceCode
+                          }}</small
+                        >
                         <p>{{ row.name }} {{ row.unit }}</p></template
                       ></el-table-column
                     ><el-table-column label="类型" width="80"
@@ -1945,6 +2094,34 @@ onMounted(async () => {
                       ></el-table-column
                     ></el-table
                   >
+                  <div class="section-title">危险点 / 预控执行情况</div>
+                  <el-table :data="current.hazards || []"
+                    ><el-table-column label="危险点"
+                      ><template #default="{ row }">{{
+                        row.analysis || row.risk
+                      }}</template></el-table-column
+                    ><el-table-column
+                      prop="measures"
+                      label="预控措施"
+                    /><el-table-column label="执行时间 / 人员"
+                      ><template #default="{ row }"
+                        >{{ fmt(row.executedAt) }} ·
+                        {{ labelId(row.executedBy) }}</template
+                      ></el-table-column
+                    ><el-table-column label="操作" width="115"
+                      ><template #default="{ row }"
+                        ><el-button
+                          link
+                          type="primary"
+                          :disabled="
+                            current.status !== 'executing' || row.executed
+                          "
+                          @click="executeHazard(row)"
+                          >{{ row.executed ? "已确认" : "确认执行" }}</el-button
+                        ></template
+                      ></el-table-column
+                    ></el-table
+                  >
                   <div class="section-title">
                     人员变更 / 延期 / 试运行等过程
                   </div>
@@ -1955,6 +2132,36 @@ onMounted(async () => {
                     @click="openAction('process')"
                     >登记作业过程</el-button
                   ><el-table :data="current.processRecords || []" class="mt"
+                    ><el-table-column type="expand"
+                      ><template #default="{ row }"
+                        ><el-descriptions :column="2" border
+                          ><el-descriptions-item
+                            v-for="key in [
+                              'oldLeaderId',
+                              'newLeaderId',
+                              'oldMemberIds',
+                              'newMemberIds',
+                              'eventAt',
+                              'approvalAt',
+                              'approvedBy',
+                              'validUntil',
+                              'trialContent',
+                              'restorationState',
+                              'tagLockNumbers',
+                              'isolationState',
+                            ].filter(
+                              (k) => row[k] !== undefined && row[k] !== '',
+                            )"
+                            :key="key"
+                            :label="labels[key] || key"
+                            >{{
+                              Array.isArray(row[key])
+                                ? row[key].map(labelId).join("、")
+                                : val(row, key)
+                            }}</el-descriptions-item
+                          ></el-descriptions
+                        ></template
+                      ></el-table-column
                     ><el-table-column
                       label="类型"
                       prop="type"
@@ -2069,6 +2276,23 @@ onMounted(async () => {
                 <div v-if="current.termination">
                   <h3>终结说明</h3>
                   <p>{{ current.termination.description }}</p>
+                  <el-descriptions :column="2" border
+                    ><el-descriptions-item
+                      v-for="key in [
+                        'workEndAt',
+                        'ticketEndAt',
+                        'guardianId',
+                        'siteRestored',
+                        'personnelWithdrawn',
+                        'riskAcknowledged',
+                        'removedGroundLines',
+                        'openedGroundSwitches',
+                      ].filter((k) => current.termination[k] !== undefined)"
+                      :key="key"
+                      :label="labels[key]"
+                      >{{ val(current.termination, key) }}</el-descriptions-item
+                    ></el-descriptions
+                  >
                   <a
                     v-for="id in current.termination.attachmentIds"
                     :key="id"
@@ -2082,47 +2306,28 @@ onMounted(async () => {
                   v-if="!current.evidence?.length && !current.termination"
                   description="暂无附件或证据"
               /></template>
-              <template v-if="detailTab === 'history'"
-                ><el-timeline
-                  ><el-timeline-item
-                    v-for="(h, i) in history"
-                    :key="i"
-                    :timestamp="fmt(h.time)"
-                    placement="top"
-                    ><b>{{ h.action }}</b>
-                    <p>{{ labelId(h.actor) }}</p>
-                    <el-collapse
-                      ><el-collapse-item title="查看本次记录摘要"
-                        ><p
-                          v-for="k in [
-                            'name',
-                            'description',
-                            'status',
-                            'revision',
-                            'returnReason',
-                            'conclusion',
-                          ]"
-                          :key="k"
-                        >
-                          <template v-if="JSON.parse(h.snapshot || '{}')[k]"
-                            >{{ labels[k] || "版本" }}：{{
-                              k === "status"
-                                ? st(JSON.parse(h.snapshot)[k])
-                                : JSON.parse(h.snapshot)[k]
-                            }}</template
-                          >
-                        </p></el-collapse-item
-                      ></el-collapse
-                    ></el-timeline-item
-                  ></el-timeline
-                ></template
-              >
+              <HistoryPanel
+                v-if="detailTab === 'history'"
+                :record="current"
+                :history="history"
+                :data="data"
+              />
             </section>
           </div>
           <aside>
             <section class="panel action-panel">
               <div class="panel-title">
                 <b>当前业务操作</b><el-tag size="small">{{ user.role }}</el-tag>
+              </div>
+              <div class="node-routing">
+                <b>本节点建议处理人</b>
+                <p>
+                  {{
+                    handlers(current, data).ids.map(labelId).join("、") ||
+                    "职责名单待维护"
+                  }}
+                </p>
+                <small>{{ handlers(current, data).source }}</small>
               </div>
               <el-alert
                 v-if="current.status === 'review' && blockedTickets.length"
@@ -2245,150 +2450,27 @@ onMounted(async () => {
             ><el-button @click="refresh">刷新</el-button>
           </div>
         </div>
-        <section class="panel table-panel">
-          <div class="filters">
-            <el-input
-              v-model="search"
-              placeholder="搜索标题、编号、设备、负责人"
-              clearable
-              :prefix-icon="Search"
-              style="width: 290px"
-            /><el-select
-              v-model="station"
-              clearable
-              placeholder="全部场站"
-              style="width: 230px"
-              ><el-option
-                v-for="s in data.stations"
-                :key="s.id"
-                :value="s.id"
-                :label="s.name" /></el-select
-            ><el-select
-              v-model="filterStatus"
-              clearable
-              placeholder="全部状态"
-              style="width: 180px"
-              ><el-option
-                v-for="s in [
-                  ...new Set(
-                    (data[kind] || []).map((x) => x.status).filter(Boolean),
-                  ),
-                ]"
-                :key="s"
-                :value="s"
-                :label="st(s)" /></el-select
-            ><el-select
-              v-if="['orders', 'workTickets'].includes(kind)"
-              v-model="filterType"
-              clearable
-              placeholder="全部类型"
-              style="width: 180px"
-              ><el-option
-                v-for="t in [
-                  ...new Set(
-                    (data[kind] || []).map((x) => x.type || x.subtype),
-                  ),
-                ]"
-                :key="t"
-                :value="t"
-                :label="typ(t)" /></el-select
-            ><el-button
-              link
-              @click="
-                search = '';
-                station = '';
-                filterStatus = '';
-                filterType = '';
-              "
-              >重置</el-button
-            >
-          </div>
-          <div class="list-meta">
-            共 {{ rows.length }} 条记录
-            <span>业务数据已保存 · 示例记录均为虚构</span>
-          </div>
-          <el-table
-            :data="rows"
-            border
-            stripe
-            class="click-table"
-            @row-click="
-              (r) => {
-                if (r.kind === 'messages') readMessage(r);
-                else {
-                  nav(page, r.id);
-                  if (r.kind === 'shifts') fetchLog();
-                }
+        <BusinessList
+          :key="page"
+          :kind="kind"
+          :page="page"
+          :data="data"
+          :user="user"
+          @view="
+            (r) => {
+              if (r.kind === 'messages') readMessage(r);
+              else {
+                nav(page, r.id);
+                if (r.kind === 'shifts') fetchLog();
               }
-            "
-            ><el-table-column
-              type="index"
-              label="序号"
-              width="65"
-            /><el-table-column label="标题 / 业务编号" min-width="260"
-              ><template #default="{ row }"
-                ><b>{{ row.name || row.dutyType }}</b
-                ><small>{{ row.code }}</small></template
-              ></el-table-column
-            ><el-table-column label="场站 / 设备" min-width="180"
-              ><template #default="{ row }"
-                >{{ labelId(row.stationId)
-                }}<small>{{
-                  row.deviceId
-                    ? labelId(row.deviceId)
-                    : row.deviceName || row.deviceCode || "—"
-                }}</small></template
-              ></el-table-column
-            ><el-table-column
-              v-if="
-                kind === 'orders' ||
-                kind === 'workTickets' ||
-                kind === 'defects'
-              "
-              label="类型 / 来源"
-              width="145"
-              ><template #default="{ row }">{{
-                typ(row.type || row.subtype || row.sourceType)
-              }}</template></el-table-column
-            ><el-table-column label="状态" width="165"
-              ><template #default="{ row }"
-                ><el-tag v-if="row.status" :type="tagType(row.status)">{{
-                  st(row.status)
-                }}</el-tag
-                ><span v-else>{{ row.dutyType || row.role || "—" }}</span
-                ><small class="hot" v-if="overdue(row)">已超时</small></template
-              ></el-table-column
-            ><el-table-column label="负责人 / 人员" width="140"
-              ><template #default="{ row }">{{
-                labelId(
-                  row.assigneeId ||
-                    row.leaderId ||
-                    row.personId ||
-                    row.recipientId,
-                )
-              }}</template></el-table-column
-            ><el-table-column label="计划 / 创建时间" min-width="160"
-              ><template #default="{ row }">{{
-                fmt(row.dueAt || row.startAt || row.createdAt)
-              }}</template></el-table-column
-            ><el-table-column label="操作" width="90" fixed="right"
-              ><template #default="{ row }"
-                ><el-button
-                  link
-                  type="primary"
-                  @click.stop="
-                    nav(page, row.id);
-                    if (row.kind === 'shifts') fetchLog();
-                  "
-                  >查看</el-button
-                ></template
-              ></el-table-column
-            ></el-table
-          >
-        </section></template
-      >
+            }
+          "
+          @preview="previewRule"
+          @toggle="(r) => openAction('toggle', r)"
+        />
+      </template>
       <footer>
-        NEOMS 新能源场站运行管理
+        NEOMS v{{ data.version }} 新能源场站运行管理
         <span>虚构演示数据 · {{ data.now?.slice(0, 10) }}业务时间</span>
       </footer>
     </main>
@@ -2440,6 +2522,12 @@ onMounted(async () => {
           :fields="actionFields[actionKey] || []"
           :model="actionModel"
           :data="data"
+          :user="user" /><TicketExtra
+          v-if="['process', 'terminate'].includes(actionKey)"
+          :action="actionKey"
+          :model="actionModel"
+          :ticket="current"
+          :data="data"
           :user="user" /><template
           v-if="actionKey === 'approve' && current?.kind === 'orders'"
           ><el-checkbox v-model="actionModel.checked"
@@ -2466,6 +2554,26 @@ onMounted(async () => {
             ]"
             :model="actionModel"
             :data="data" /></template
+        ><template
+          v-if="
+            actionKey === 'approve' &&
+            ['pendingConfirm', 'pendingPermit'].includes(current?.status)
+          "
+          ><el-checkbox v-model="actionModel.checked"
+            >已核验本节点相关措施、工作范围及人员信息</el-checkbox
+          ><el-input
+            v-model="actionModel.comment"
+            type="textarea"
+            :rows="3"
+            placeholder="本节点确认说明（选填）" /></template
+        ><template v-if="actionKey === 'confirm'"
+          ><div class="section-title">缺陷证据</div>
+          <el-upload
+            :show-file-list="false"
+            :before-upload="(f) => uploadFile(f, actionUploads)"
+            ><el-button>上传研判照片 / 证据</el-button></el-upload
+          >
+          <p v-for="f in actionUploads" :key="f.id">{{ f.name }}</p></template
         ><template v-if="actionKey === 'terminate'"
           ><div class="section-title">票据终结附件 *</div>
           <el-upload

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 const base=process.env.NEOMS_URL||'http://localhost:8080';let cookie='',checks=0;
 async function req(path,method='GET',body,expected=200){const headers={Cookie:cookie};if(body!==undefined&&!(body instanceof FormData))headers['Content-Type']='application/json';const r=await fetch(base+'/api'+path,{method,headers,body:body===undefined?undefined:body instanceof FormData?body:JSON.stringify(body)});if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];const text=await r.text();assert.equal(r.status,expected,`${method} ${path}: ${text}`);checks++;return r.headers.get('content-type')?.includes('json')?JSON.parse(text):text;}
-const action=(id,a,p={},status=200)=>req(`/records/${id}/actions/${a}`,'POST',p,status);
+const action=(id,a,p={},status=200)=>req(`/records/${id}/actions/${a}`,'POST',a==='approve'?{checked:true,...p}:a==='process'?{eventAt:now,...p}:a==='terminate'?{workEndAt:now,ticketEndAt:now,siteRestored:true,personnelWithdrawn:true,guardianId:'person-permit',riskAcknowledged:true,...p}:p,status);
 await req('/bootstrap','GET',undefined,401);await req('/health');
 await req('/auth/login','POST',{username:'admin',password:'bad'},400);
 await req('/auth/login','POST',{username:'admin',password:'Demo@2026'});
@@ -62,4 +62,28 @@ let roster={stationId:'station-1',startDate:'2026-11-08',endDate:'2026-11-09',pe
 await req('/roster/preview','POST',roster);await req('/roster/apply','POST',roster);await req('/roster/apply','POST',roster,400);
 assert.ok((await req('/records/'+tid+'/history')).some(x=>x.action.includes('退回')));checks++;
 await req('/export');
+const oldHistory=await req('/records/'+tid+'/history');
+const permittedVersion=oldHistory.find(x=>JSON.parse(x.snapshot).status==='executing');
+assert.ok(permittedVersion);checks++;
+assert.match(await req(`/print/${tid}?historyId=${permittedVersion.id}`),/版本/);checks++;
+await req(`/print/ticket-1?historyId=${permittedVersion.id}`,'GET',undefined,400);
+let approvalHistory=await req('/approvals/history?kind=workTickets');
+assert.ok(approvalHistory.some(x=>x.id===tid&&x.auditActor==='person-permit'));checks++;
+data=await req('/bootstrap');assert.ok(data.devices.find(x=>x.id==='device-1').samples.length>=14);checks++;
+const multi=await req('/entities/inspectionRules','POST',{name:'HTTP多设备巡检',stationId:'station-1',completionDays:1,times:['10:00'],points:[{id:'point-multi',name:'阵区',deviceIds:['device-1','device-2'],items:[{name:'设备温度',type:'record',unit:'℃'},{name:'02号专用检查',type:'observation',deviceId:'device-2'}]}]});
+const multiOrder=await action(multi.id,'trigger');assert.equal(multiOrder.items.length,3);checks++;
+let contact=await req('/entities/workTickets','POST',{...payload,name:'HTTP联系单',subtype:'contact',orderIds:[],measures:[],hazards:[{id:'hc1',analysis:'现场风险',measures:'预控措施'}]});
+await action(contact.id,'submit');contact=await action(contact.id,'approve');assert.equal(contact.status,'executing');checks++;
+await action(contact.id,'terminate',{description:'结束',attachmentIds:[file.id]},400);
+await action(contact.id,'hazard',{itemId:'hc1'});await action(contact.id,'terminate',{description:'危险点预控已执行，现场恢复',attachmentIds:[file.id]});
+let op=await req('/entities/operationTickets','POST',{...payload,name:'HTTP分类校验',orderIds:[],firstType:'PT操作票',secondType:'运行转冷备用',issuerId:'person-signer',supervisorId:'person-permit',items:[{id:'op-a',name:'第一项',executed:false},{id:'op-b',name:'第二项',executed:false}]});
+await action(op.id,'submit',{},400);op=await req('/records/'+op.id,'PUT',{...op,secondType:'运行转检修'});await action(op.id,'submit');await action(op.id,'approve');
+await action(op.id,'step',{itemId:'op-b'},400);await action(op.id,'step',{itemId:'op-a'});await action(op.id,'step',{itemId:'op-b'});
+await action('ticket-5','process',{processType:'工作负责人变更',description:'缺少新负责人'},400);
+let changed=await action('ticket-5','process',{processType:'工作负责人变更',description:'现场交接记录',eventAt:data.now,oldLeaderId:'person-field',newLeaderId:'person-permit',approvedBy:'person-signer',approvalAt:data.now});
+assert.equal(changed.processRecords.at(-1).newLeaderId,'person-permit');checks++;
+assert.match(await req('/print/ticket-5'),/新负责人/);checks++;
+const {handlers}=await import('../frontend/src/workflow.js');
+assert.deepEqual(handlers({kind:'workTickets',stationId:'station-1',status:'pendingSign',subtype:'electrical1'},data).ids,['person-signer']);
+assert.deepEqual(handlers({kind:'workTickets',stationId:'station-1',status:'pendingSign',subtype:'contact',leaderId:'person-field'},data).ids,['person-field']);checks+=2;
 console.log(JSON.stringify({result:'PASS',checks,closedOrder:oid,sourceDefect:fid,ticket:tid,database:'live configured server'},null,2));
