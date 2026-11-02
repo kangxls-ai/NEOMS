@@ -1,0 +1,33 @@
+server:
+  port: ${NEOMS_PORT:8080}
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        same-site: lax
+spring:
+  config:
+    import: optional:file:./config/application-local.yml
+  application:
+    name: neoms
+  datasource:
+    url: ${NEOMS_DB_URL:jdbc:mysql://localhost:3306/neoms_demo?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
+    username: ${NEOMS_DB_USER:admin}
+    password: ${NEOMS_DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 8
+  servlet:
+    multipart:
+      max-file-size: 8MB
+      max-request-size: 10MB
+  web:
+    resources:
+      static-locations: file:./config/static/
+      cache:
+        period: 0
+logging:
+  file:
+    name: ./logs/neoms.log
+neoms:
+  demo-enabled: true
+  upload-dir: ./data/uploads

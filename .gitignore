@@ -1,0 +1,15 @@
+target/
+node_modules/
+frontend/dist/
+runtime/
+.m2/
+*.log
+*.pid
+config/application-local.yml
+config/application-local.properties
+.env
+release/
+.tools/
+.cache/
+logs/
+data/

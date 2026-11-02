@@ -1,0 +1,5 @@
+# Copy to application-local.yml and fill local credentials. Never commit that file.
+spring:
+  datasource:
+    username: admin
+    password: ""
