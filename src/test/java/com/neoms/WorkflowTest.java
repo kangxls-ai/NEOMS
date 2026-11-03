@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.*;
  "spring.datasource.username=sa","spring.datasource.password=","spring.datasource.driver-class-name=org.h2.Driver"})
 @Transactional
 class WorkflowTest {
- @Autowired Engine engine; @Autowired Store db;
+ @Autowired Engine engine; @Autowired Store db; @Autowired ShiftLogService shiftLogs;
  final String actor="person-field";
  Map<String,Object> act(String id,String action,Map<String,Object> p){if(action.equals("approve"))p.putIfAbsent("checked",true);if(action.equals("terminate")){p.putIfAbsent("workEndAt",engine.now());p.putIfAbsent("ticketEndAt",engine.now());p.putIfAbsent("siteRestored",true);p.putIfAbsent("personnelWithdrawn",true);p.putIfAbsent("guardianId",actor);p.putIfAbsent("riskAcknowledged",true);}return engine.act(id,action,p,actor);}
  Map<String,Object> ticket(String kind,String subtype,List<String> orders){return engine.create(kind,m("name","测试票据","subtype",subtype,"firstType","集电线路操作票","secondType","运行转检修","issuerId","person-signer","supervisorId","person-permit","deviceName","01号逆变器","description","演示检修","leaderId",actor,"stationId","station-1","plannedStart",engine.now(),"plannedEnd","2026-11-02T18:00:00","orderIds",orders,"hazards",List.of(m("id","h1","analysis","测试风险","measures","测试预控")),"measures",List.of(m("id","m1","name","隔离确认","executed",false)),"items",List.of(m("id","i1","name","确认设备","executed",false))),actor);}
@@ -94,6 +94,24 @@ class WorkflowTest {
   assertEquals("管理员",db.jdbc().queryForObject("SELECT display_name FROM neoms_users WHERE id='person-admin'",String.class));assertEquals(password,db.jdbc().queryForObject("SELECT password_hash FROM neoms_users WHERE id='person-admin'",String.class));
   assertFalse(db.history("order-6").getFirst().get("snapshot").toString().contains("演示"));assertFalse(java.nio.file.Files.readString(temp.resolve("known.txt")).contains("演示"));
   int revision=((Number)db.read("order-6").get("_revision")).intValue();LabelMigration.run(db,temp);assertEquals(revision,db.read("order-6").get("_revision"));
+ }
+ @Test void shiftLogUsesActualCrossMidnightRangeAndSingleBusinessEntries(){
+  engine.add("notes",m("id","night-start","stationId","station-1","shiftId","shift-1-night","description","夜班接班","createdAt","2026-11-01T20:00:00"),actor);
+  engine.add("notes",m("id","night-after-midnight","stationId","station-1","shiftId","shift-1-night","description","跨日设备核查","createdAt","2026-11-02T00:10:00"),actor);
+  engine.add("notes",m("id","at-shift-end","stationId","station-1","description","属于下一班","createdAt","2026-11-02T08:00:00"),actor);
+  engine.add("notes",m("id","another-station","stationId","station-2","description","其他场站","createdAt","2026-11-02T01:00:00"),actor);
+  var defect=engine.add("defects",m("id","night-defect","code","QX-NIGHT","name","夜间缺陷","stationId","station-1","deviceId","device-1","level","一般缺陷","status","pendingApproval","createdAt","2026-11-01T21:00:00"),actor);
+  engine.edit("night-after-midnight",m("description","跨日核查已复测"),actor);
+  var sheet=shiftLogs.sheet("shift-1-night");var events=items(sheet,"events");var faults=items(sheet,"defects");
+  assertEquals(3,events.size());assertEquals("night-after-midnight",events.getFirst().get("recordId"));assertEquals("跨日核查已复测",events.getFirst().get("content"));
+  assertEquals(1,faults.size());assertEquals("李明",faults.getFirst().get("reporterName"));assertEquals("2026-11-01T21:00:00",faults.getFirst().get("approvalSubmittedAt"));
+  assertTrue(events.stream().anyMatch(x->s(x,"content").equals("新增缺陷单QX-NIGHT")));
+ }
+ @Test void handoverDraftDoesNotPublishBeforeShiftEnd(){
+  var draft=act("shift-2-day","handoverDraft",m("handover","设备关注事项"));assertEquals("scheduled",s(draft,"status"));assertTrue(s(draft,"handover").isBlank());
+  assertThrows(IllegalArgumentException.class,()->act("shift-2-day","handover",m("handover","设备关注事项")));
+  engine.tick("2026-11-02T20:00:00",actor);assertEquals("handoverPending",s(db.read("shift-2-day"),"status"));
+  var submitted=act("shift-2-day","handover",m("handover","设备关注事项"));assertEquals("handedOver",s(submitted,"status"));assertFalse(submitted.containsKey("handoverDraft"));
  }
  @Test void materialAmountAndPauseKeepDeadline(){
   var before=db.read("order-6");String due=s(before,"dueAt");act("order-6","pause",m("reason","待备件"));assertEquals(due,s(db.read("order-6"),"dueAt"));

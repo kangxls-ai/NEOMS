@@ -31,6 +31,7 @@ import {
   actionNames,
 } from "./schema";
 import FormFields from "./FormFields.vue";
+import CurrentLog from "./CurrentLog.vue";
 import RecordEditor from "./RecordEditor.vue";
 import BusinessList from "./BusinessList.vue";
 import { handlers } from "./workflow";
@@ -889,27 +890,7 @@ const shiftRows = computed(() =>
     shiftRows.value.find(
       (x) => x.startAt <= data.value.now && x.endAt > data.value.now,
     ),
-  ),
-  logShift = computed(() =>
-    current.value?.kind === "shifts" ? current.value : currentShift.value,
-  ),
-  previousShift = computed(() => {
-    let s = logShift.value;
-    return s
-      ? shiftRows.value
-          .filter((x) => x.stationId === s.stationId && x.endAt <= s.startAt)
-          .sort((a, b) => b.endAt.localeCompare(a.endAt))[0]
-      : null;
-  }),
-  logEvents = ref([]);
-async function fetchLog() {
-  if (logShift.value)
-    logEvents.value = await api("/logs?shiftId=" + logShift.value.id);
-}
-watch([page, recordId, station, () => data.value.now], () => {
-  if (user.value && (page.value === "currentLog" || page.value === "logs"))
-    fetchLog().catch((e) => ElMessage.error(e.message));
-});
+  );
 window.addEventListener("hashchange", () => {
   if (!user.value) return;
   let [p, id = ""] = location.hash.replace(/^#\/?/, "").split("/");
@@ -1186,7 +1167,14 @@ onMounted(async () => {
       >
       <div class="sidebar-bottom"><i></i> 系统运行正常</div>
     </aside>
-    <main class="main">
+    <main
+      class="main"
+      :class="{
+        'prototype-log-main':
+          page === 'currentLog' ||
+          (page === 'logs' && current?.kind === 'shifts'),
+      }"
+    >
       <div class="breadcrumb">
         <el-select
           v-model="businessDomain"
@@ -1321,13 +1309,7 @@ onMounted(async () => {
                 <el-tag type="danger">超时关注</el-tag>
                 <p>{{ counts.overdue }}项工单超时，挂起不自动顺延期限</p>
               </div>
-              <div
-                class="attention-item"
-                @click="
-                  nav('currentLog');
-                  fetchLog();
-                "
-              >
+              <div class="attention-item" @click="nav('currentLog')">
                 <el-tag type="warning">交代待补</el-tag>
                 <p>
                   {{
@@ -1349,13 +1331,7 @@ onMounted(async () => {
                   {{ fmt(currentShift.startAt) }}<br />至
                   {{ fmt(currentShift.endAt) }}
                 </p>
-                <el-button
-                  type="primary"
-                  plain
-                  @click="
-                    nav('currentLog');
-                    fetchLog();
-                  "
+                <el-button type="primary" plain @click="nav('currentLog')"
                   >进入当前日志</el-button
                 ></template
               ><el-empty v-else description="当前场站缺少有效排班" />
@@ -1523,13 +1499,7 @@ onMounted(async () => {
               <p>{{ fmt(s.startAt) }}<br />至 {{ fmt(s.endAt) }}</p>
               <el-tag :type="tagType(s.status)">{{ st(s.status) }}</el-tag>
               <div class="inline-actions">
-                <el-button
-                  link
-                  type="primary"
-                  @click="
-                    nav('logs', s.id);
-                    fetchLog();
-                  "
+                <el-button link type="primary" @click="nav('logs', s.id)"
                   >查看班次日志</el-button
                 ><el-button
                   v-if="s.startAt > data.now"
@@ -1550,118 +1520,18 @@ onMounted(async () => {
           </section></div
       ></template>
 
-      <template
+      <CurrentLog
         v-else-if="
           page === 'currentLog' ||
           (page === 'logs' && current?.kind === 'shifts')
         "
-        ><div class="page-heading">
-          <div>
-            <h1>{{ logShift?.name || "当前日志" }} · 班次日志</h1>
-            <p v-if="logShift">
-              {{ fmt(logShift.startAt) }} 至 {{ fmt(logShift.endAt) }} · 负责人
-              {{ labelId(logShift.assigneeId) }}
-            </p>
-          </div>
-          <div class="inline-actions">
-            <el-button @click="fetchLog">刷新事件</el-button
-            ><el-button
-              v-if="logShift && logShift.endAt > data.now"
-              type="primary"
-              @click="
-                openEditor('notes', null, { stationId: logShift.stationId })
-              "
-              >新增值班记事</el-button
-            ><el-button
-              v-if="logShift && logShift.endAt <= data.now"
-              type="primary"
-              @click="openAction('handover', logShift)"
-              >补填班后交代</el-button
-            >
-          </div>
-        </div>
-        <template v-if="logShift"
-          ><section class="panel">
-            <div class="panel-title">
-              <b>班前交代</b
-              ><span
-                >来自上一实际班次 · 值长 {{ labelId(logShift.chiefId) }} ·
-                值班人员
-                {{
-                  (logShift.memberIds || []).map(labelId).join("、") ||
-                  "本班负责人"
-                }}</span
-              >
-            </div>
-            <p v-if="previousShift?.handover">{{ previousShift.handover }}</p>
-            <el-alert
-              v-else
-              title="上一班交代尚未填写，已标记待补；不阻塞当前班次正常进行。"
-              type="warning"
-              :closable="false"
-            />
-          </section>
-          <div class="dashboard-grid">
-            <section class="panel">
-              <div class="panel-title">
-                <b>值班情况 / 倒序业务事件</b
-                ><el-button link type="primary" @click="fetchLog"
-                  >加载 / 刷新</el-button
-                >
-              </div>
-              <el-table :data="logEvents"
-                ><el-table-column label="时间" width="165"
-                  ><template #default="{ row }">{{
-                    fmt(row.time)
-                  }}</template></el-table-column
-                ><el-table-column label="类型" width="110"
-                  ><template #default="{ row }">{{
-                    kinds[row.kind]
-                  }}</template></el-table-column
-                ><el-table-column label="内容" prop="action" /><el-table-column
-                  label="详情"
-                  width="100"
-                  ><template #default="{ row }"
-                    ><el-button
-                      link
-                      type="primary"
-                      @click="gotoRecord(row.recordId)"
-                      >查看记录</el-button
-                    ></template
-                  ></el-table-column
-                ></el-table
-              >
-            </section>
-            <section class="panel">
-              <div class="panel-title"><b>本班缺陷记录</b></div>
-              <div
-                v-for="r in (data.defects || []).filter(
-                  (x) =>
-                    x.createdAt >= logShift.startAt &&
-                    x.createdAt < logShift.endAt,
-                )"
-                :key="r.id"
-                class="attention-item"
-                @click="gotoRecord(r.id)"
-              >
-                <b>{{ r.name }}</b>
-                <p>
-                  <el-tag :type="tagType(r.status)">{{ st(r.status) }}</el-tag>
-                  {{ r.code }}
-                </p>
-              </div>
-              <div class="section-title">本班班后交代</div>
-              <p>{{ logShift.handover || "尚未填写，结束后可补填" }}</p>
-              <small v-if="logShift.handoverAt"
-                >补填时间 {{ fmt(logShift.handoverAt) }}</small
-              >
-            </section>
-          </div></template
-        ><el-empty
-          v-else
-          description="当前场站 / 时间没有有效排班，可在排班管理补齐"
-      /></template>
-
+        :key="page + recordId"
+        :data="data"
+        :user="user"
+        :initial-shift-id="current?.kind === 'shifts' ? current.id : ''"
+        @view="gotoRecord"
+        @changed="refresh"
+      />
       <template v-else-if="page === 'workflow' || page === 'guide'"
         ><div class="page-heading">
           <div>
@@ -2487,7 +2357,6 @@ onMounted(async () => {
               if (r.kind === 'messages') readMessage(r);
               else {
                 nav(page, r.id);
-                if (r.kind === 'shifts') fetchLog();
               }
             }
           "
