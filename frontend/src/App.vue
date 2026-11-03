@@ -1575,7 +1575,7 @@ onMounted(async () => {
                 '负责人完成',
               ],
             ],
-          ]"
+          ].filter((w) => page !== 'workflow' || w[0] !== '定检 / 巡检')"
           :key="w[0]"
         >
           <div class="panel-title">
