@@ -30,7 +30,7 @@ const device = computed(() =>
 </script>
 <template>
   <template v-if="device"
-    ><div class="section-title">设备测点与最近采样（虚构演示数据）</div>
+    ><div class="section-title">设备测点与最近采样（业务数据）</div>
     <p>
       {{ device.name }} · 温度阈值 {{ device.limit }}℃ · 最新采样
       {{ device.sampledAt || "尚无" }}

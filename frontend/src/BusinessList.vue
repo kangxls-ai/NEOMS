@@ -354,7 +354,7 @@ function reset() {
         :label="t[1]" /></el-tabs
     ><el-alert
       v-if="approval"
-      title="“待我处理”依据班次、年度职责与票上人员确定；切换“全部待办”可统一演示，未实施权限隔离。"
+      title="“待我处理”依据班次、年度职责与票上人员确定；可切换“全部待办”集中查看。"
       type="info"
       :closable="false"
       class="mb"

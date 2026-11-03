@@ -125,7 +125,15 @@ function nav(p, id = "") {
 }
 function gotoRecord(id) {
   const r = all.value.find((x) => x.id === id);
-  if (r) nav(r.kind === "shifts" ? "logs" : r.kind, id);
+  if (r)
+    nav(
+      r.kind === "shifts"
+        ? "logs"
+        : r.kind === "devices" && root.value === "运行管理"
+          ? "operationsDevices"
+          : r.kind,
+      id,
+    );
   else ElMessage.info("关联记录已归档或不存在");
 }
 async function loadHistory(id) {
@@ -164,6 +172,8 @@ const all = computed(() =>
       ({
         dashboard: "工作台",
         monitor: "设备监测",
+        operationsMonitor: "设备监测",
+        operationsDevices: "设备信息",
         currentLog: "当前日志",
         logs: "日志查询",
         calendar: "值班日历",
@@ -638,7 +648,7 @@ function fillTicket() {
   Object.assign(d, {
     name: (op ? "操作票" : typ(d.subtype)) + " · 逆变器异常检修",
     deviceName: device?.name || "02号逆变器",
-    description: "演示作业：检查散热风扇及风道，记录设备状态与恢复结果。",
+    description: "作业：检查散热风扇及风道，记录设备状态与恢复结果。",
     leaderId: "person-field",
     issuerId: "person-signer",
     permitterId: "person-permit",
@@ -665,7 +675,7 @@ function fillTicket() {
                   : d.subtype === "wind"
                     ? "运行人员安全措施"
                     : "应拉断路器、隔离开关",
-              name: "本次作业隔离范围与设备状态核查（虚构演示措施）",
+              name: "本次作业隔离范围与设备状态核查（措施）",
               executed: false,
             },
           ];
@@ -767,10 +777,10 @@ async function uploadFile(file, target) {
 async function mockAttachment() {
   const f = new File(
     [
-      "NEOMS 虚构演示票据附件\n仅用于领导演示，不代表实际安全许可或作业记录。\n" +
+      "NEOMS 作业票据附件\n工作结束，现场恢复及人员撤离记录。\n" +
         data.value.now,
     ],
-    "演示票据终结记录.txt",
+    "票据终结记录.txt",
     { type: "text/plain" },
   );
   await uploadFile(f, actionUploads.value);
@@ -947,20 +957,20 @@ async function advance(time) {
     const r = await api("/clock", "POST", { time });
     await refresh();
     clockDialog.value = false;
-    ElMessage.success(`演示时间已推进，触发${r.triggered}次规则检查`);
+    ElMessage.success(`时间已推进，触发${r.triggered}次规则检查`);
   });
 }
 async function reset() {
   await safe(async () => {
     await ElMessageBox.confirm(
-      "将重置本项目的虚构演示记录，当前演示操作将清除。是否继续？",
-      "重置演示数据",
+      "将重置本项目的记录，当前操作将清除。是否继续？",
+      "重置数据",
       { type: "warning" },
     );
     await api("/demo/reset", "POST", { confirm: "RESET_DEMO" });
     await refresh();
     nav("dashboard");
-    ElMessage.success("演示数据已恢复");
+    ElMessage.success("数据已恢复");
   });
 }
 function downloadCSV() {
@@ -1095,11 +1105,10 @@ onMounted(async () => {
         ></el-tabs
       >
       <div class="login-help">
-        示例用户统一密码：Demo@2026<br />虚构演示数据 · 业务身份切换 ·
-        不含复杂权限隔离
+        登录密码：Demo@2026<br />业务数据 · 业务身份切换 · 不含复杂权限隔离
       </div>
     </div>
-    <div class="login-footer">智慧运营中心 · NEOMS 运行管理演示版本</div>
+    <div class="login-footer">智慧运营中心 · NEOMS 运行管理系统</div>
   </div>
   <div v-else class="app-shell" v-loading="loading">
     <header class="topbar">
@@ -1159,7 +1168,9 @@ onMounted(async () => {
     <aside class="sidebar">
       <div class="sidebar-caption">{{ root }}</div>
       <el-menu
-        :default-active="page"
+        :default-active="
+          page === 'operationsDevices' ? 'operationsMonitor' : page
+        "
         :default-openeds="sidebar.map((x) => x.title)"
         @select="(p) => nav(p)"
         ><el-sub-menu
@@ -1173,7 +1184,7 @@ onMounted(async () => {
           }}</el-menu-item></el-sub-menu
         ></el-menu
       >
-      <div class="sidebar-bottom"><i></i> 演示环境 · MySQL持久化</div>
+      <div class="sidebar-bottom"><i></i> 系统运行正常</div>
     </aside>
     <main class="main">
       <div class="breadcrumb">
@@ -1201,7 +1212,7 @@ onMounted(async () => {
         v-if="!['集中式场站运维', '全部'].includes(businessDomain)"
         :title="
           businessDomain +
-          '本次仅保留业务域入口，以下仍为已定义的场站运行演示数据。'
+          '本次仅保留业务域入口，以下仍为已定义的场站运行数据。'
         "
         type="info"
         :closable="false"
@@ -1215,7 +1226,7 @@ onMounted(async () => {
             <p>异常有依据，任务有责任，作业与验收全程可追溯。</p>
             <div class="welcome-tags">
               <span>当前业务身份：{{ user.role }}</span
-              ><span>{{ (data.stations || []).length }} 座虚构场站</span
+              ><span>{{ (data.stations || []).length }} 座场站</span
               ><span>数据已保存至数据库</span>
             </div>
           </div>
@@ -1352,11 +1363,11 @@ onMounted(async () => {
           </div></div
       ></template>
 
-      <template v-else-if="page === 'monitor'"
+      <template v-else-if="['monitor', 'operationsMonitor'].includes(page)"
         ><div class="page-heading">
           <div>
             <h1>设备监测</h1>
-            <p>模拟测点、异常趋势与关联事件；不会控制真实设备。</p>
+            <p>设备测点、运行趋势与异常事件集中查看。</p>
           </div>
           <el-select
             v-model="station"
@@ -1400,7 +1411,7 @@ onMounted(async () => {
             <svg
               viewBox="0 0 440 100"
               class="sparkline"
-              aria-label="模拟温度趋势"
+              aria-label="采样温度趋势"
             >
               <path d="M0 85H440M0 45H440" stroke="#e7edf6" />
               <path
@@ -1410,19 +1421,34 @@ onMounted(async () => {
                 stroke-width="3"
               />
             </svg>
-            <el-button link type="primary" @click="nav('devices', d.id)"
+            <el-button
+              link
+              type="primary"
+              @click="
+                nav(
+                  page === 'operationsMonitor'
+                    ? 'operationsDevices'
+                    : 'devices',
+                  d.id,
+                )
+              "
               >最近采样 {{ fmt(d.sampledAt) }} · 查看记录</el-button
             >
             <div class="device-footer">
-              <span>演示阈值 {{ d.limit }}℃</span
+              <span>阈值 {{ d.limit }}℃</span
               ><el-button
                 type="primary"
                 plain
                 @click="
-                  nav('devices', d.id);
+                  nav(
+                    page === 'operationsMonitor'
+                      ? 'operationsDevices'
+                      : 'devices',
+                    d.id,
+                  );
                   openAction('sample', d);
                 "
-                >模拟异常采样</el-button
+                >更新采样</el-button
               >
             </div>
           </section>
@@ -1705,7 +1731,7 @@ onMounted(async () => {
             站长 → 值长 →
             班次负责人为业务职责关系。系统不实施复杂授权隔离；身份切换仍保留操作人员和时间记录。
           </p>
-          <p>演示数据与操作票示例模板用于展示，未接入真实设备控制。</p>
+          <p>操作票项目按场站规程编制，人员与过程记录可追溯。</p>
         </section></template
       >
 
@@ -1891,7 +1917,7 @@ onMounted(async () => {
                       <el-button
                         @click="fillWork"
                         :disabled="current.status !== 'working'"
-                        >填入模拟处置结果</el-button
+                        >填入处置参考内容</el-button
                       >
                     </div>
                     <FormFields
@@ -1934,10 +1960,10 @@ onMounted(async () => {
                       @click="
                         workForm.evidence.push({
                           type: 'note',
-                          name: '模拟复测记录：设备已恢复，连续观察30分钟（演示）',
+                          name: '复测记录：设备已恢复，连续观察30分钟',
                         })
                       "
-                      >添加模拟复测证据</el-button
+                      >添加复测记录</el-button
                     >
                     <p v-for="(e, i) in workForm.evidence" :key="i">
                       <a v-if="e.url" :href="e.url" target="_blank">{{
@@ -2380,7 +2406,7 @@ onMounted(async () => {
                 description="当前无待处理操作"
               />
               <p class="subtle">
-                所有操作保留业务人员、时间与历史。身份切换用于演示协作。
+                所有操作保留业务人员、时间与历史。可切换业务身份协同处理。
               </p>
             </section>
             <section class="panel" v-if="current.kind === 'orders'">
@@ -2471,7 +2497,7 @@ onMounted(async () => {
       </template>
       <footer>
         NEOMS v{{ data.version }} 新能源场站运行管理
-        <span>虚构演示数据 · {{ data.now?.slice(0, 10) }}业务时间</span>
+        <span>业务数据 · {{ data.now?.slice(0, 10) }}业务时间</span>
       </footer>
     </main>
 
@@ -2498,7 +2524,7 @@ onMounted(async () => {
         ></RecordEditor
       ><template #footer
         ><el-button v-if="editKind.endsWith('Tickets')" @click="fillTicket"
-          >填入演示编制内容</el-button
+          >快速填入编制内容</el-button
         ><el-button @click="editing = false">取消</el-button
         ><el-button type="primary" :loading="loading" @click="saveEditor"
           >保存{{ editKind.endsWith("Tickets") ? "编制内容" : "" }}</el-button
@@ -2543,7 +2569,7 @@ onMounted(async () => {
               actionModel.conclusion =
                 '处置和恢复证据完整，关联作业票据已终结，同意验收。'
             "
-            >填入模拟验收意见</el-button
+            >填入验收参考意见</el-button
           ></template
         ><template
           v-if="actionKey === 'approve' && current?.status === 'pendingSign'"
@@ -2581,7 +2607,7 @@ onMounted(async () => {
             :before-upload="(f) => uploadFile(f, actionUploads)"
             ><el-button>上传已填写的票据附件</el-button></el-upload
           ><el-button class="mt" plain @click="mockAttachment"
-            >添加明确标识的模拟终结记录</el-button
+            >生成终结记录附件</el-button
           >
           <p v-for="f in actionUploads" :key="f.id">{{ f.name }}</p></template
         ><el-alert
@@ -2620,9 +2646,9 @@ onMounted(async () => {
         v-if="!previewRows.length"
         description="未来一年没有满足交集的时点，请检查规则"
     /></el-dialog>
-    <el-dialog v-model="clockDialog" title="演示时间工具" width="640px"
+    <el-dialog v-model="clockDialog" title="时间工具" width="640px"
       ><el-alert
-        title="推进时钟会自动触发在用规则及到点交班；单次最多31天。原有演示记录保留。"
+        title="推进时钟会自动触发在用规则及到点交班；单次最多31天。原有记录保留。"
         type="info"
         :closable="false"
       /><el-date-picker
@@ -2635,8 +2661,8 @@ onMounted(async () => {
         <el-button @click="advance(addHours(data.now, 1))">推进1小时</el-button
         ><el-button type="primary" @click="advance(clockTime)"
           >推进至所选时刻</el-button
-        ><a href="/api/export" download><el-button>导出演示数据</el-button></a
-        ><el-button type="danger" plain @click="reset">重置演示数据</el-button>
+        ><a href="/api/export" download><el-button>导出数据</el-button></a
+        ><el-button type="danger" plain @click="reset">重置数据</el-button>
       </div></el-dialog
     >
     <el-dialog

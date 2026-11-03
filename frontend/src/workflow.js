@@ -26,7 +26,7 @@ export function handlers(r, data) {
       "teams",
     ].includes(r.kind)
   )
-    return { ids: byRole("管理员"), source: "演示环境配置与资料维护" };
+    return { ids: byRole("管理员"), source: "环境配置与资料维护" };
   if (r.kind === "defects" && r.status === "pendingApproval") {
     let shift = (data.shifts || []).find(
       (x) => x.stationId === r.stationId && x.startAt <= now && x.endAt > now,

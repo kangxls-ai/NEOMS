@@ -171,7 +171,7 @@ async function loadTemplate() {
     try {
       await ElMessageBox.confirm(
         "载入模板将替换当前未提交的操作项目；可继续编辑、增删与排序。",
-        "载入演示模板",
+        "载入模板",
       );
     } catch {
       return;
@@ -340,11 +340,11 @@ async function loadTemplate() {
       <template v-if="kind === 'operationTickets'"
         ><div class="section-title">操作任务 / 顺序项目</div>
         <el-alert
-          title="演示模板：集电线路运行转检修保留原型13项，文字不完整处单独标注；其他转换为待补占位，不作为正式操作规程。"
+          title="模板：集电线路运行转检修保留原型13项，文字不完整处单独标注；其他转换为待补占位，不作为正式操作规程。"
           :closable="false"
           type="info"
         /><el-button class="mt mb" type="primary" plain @click="loadTemplate"
-          >载入所选类型演示模板</el-button
+          >载入所选类型模板</el-button
         ><el-table :data="model.items || []"
           ><el-table-column
             label="序号"

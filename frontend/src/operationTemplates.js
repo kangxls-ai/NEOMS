@@ -18,8 +18,8 @@ export function operationTemplate(first, second, device = "[待填写设备]") {
     first === "集电线路操作票" && second === "运行转检修"
       ? prototype
       : [
-          `${first || "所选票种"} · ${second || "所选转换"}：任务与设备核对（演示占位）`,
-          "原型未提供本转换完整项目，请由业务人员补全并校核（演示占位）",
+          `${first || "所选票种"} · ${second || "所选转换"}：任务与设备核对（待完善项目）`,
+          "原型未提供本转换完整项目，请由业务人员补全并校核（待完善项目）",
         ];
   return names.map((name) => ({
     id: crypto.randomUUID(),

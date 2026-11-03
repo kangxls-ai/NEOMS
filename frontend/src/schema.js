@@ -73,7 +73,7 @@ export const menus = [
   {
     title: "感知预警",
     items: [
-      ["monitor", "设备监测"],
+      ["operationsMonitor", "设备监测"],
       ["alerts", "异常事件"],
     ],
   },
@@ -137,6 +137,7 @@ export const menus = [
   },
 ];
 export const aliases = {
+  operationsDevices: "devices",
   defectApproval: "defects",
   unassigned: "orders",
   paused: "orders",
@@ -167,7 +168,7 @@ export const fields = {
     station,
     f("deviceCode", "设备编码"),
     f("type", "设备类型"),
-    f("limit", "演示温度阈值 ℃", "number"),
+    f("limit", "温度阈值 ℃", "number"),
   ],
   teams: [
     f("name", "班组名称"),
@@ -371,7 +372,7 @@ export const actionFields = {
   terminate: [f("description", "工作结束、现场恢复及终结说明", "textarea")],
   linkDefect: [f("description", "异常与缺陷描述", "textarea"), device],
   sample: [
-    f("temperature", "模拟温度 ℃", "number"),
+    f("temperature", "采样温度 ℃", "number"),
     f("level", "事件类型", "select", { warning: "预警", alarm: "告警" }),
   ],
 };
@@ -402,7 +403,7 @@ export const actionNames = {
   material: "物料领用登记",
   process: "作业过程登记",
   terminate: "终结补录",
-  sample: "模拟异常采样",
+  sample: "更新采样",
   linkDefect: "登记关联缺陷",
 };
 export const labels = {
@@ -439,7 +440,7 @@ export const labels = {
   defectId: "关联缺陷",
   ruleId: "来源规则",
   requiresPermit: "开工需作业许可",
-  recoveryLimit: "演示恢复温度上限 ℃",
+  recoveryLimit: "恢复温度上限 ℃",
   revision: "票据版本",
   signedBy: "签发人",
   confirmedBy: "负责人确认人",

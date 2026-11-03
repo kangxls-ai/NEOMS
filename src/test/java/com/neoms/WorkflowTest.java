@@ -82,6 +82,19 @@ class WorkflowTest {
   String id=s(ticket("workTickets","electrical1",List.of()),"id");act(id,"submit",m());act(id,"approve",m());
   assertThrows(IllegalArgumentException.class,()->act(id,"approve",m("checked",false)));
  }
+ @Test void cosmeticMigrationPreservesBusinessAndCredentials(@org.junit.jupiter.api.io.TempDir java.nio.file.Path temp)throws Exception{
+  var order=db.read("order-6");order.put("name","演示检修任务");db.save(order);
+  db.jdbc().update("UPDATE neoms_users SET display_name='演示管理员' WHERE id='person-admin'");
+  String password=db.jdbc().queryForObject("SELECT password_hash FROM neoms_users WHERE id='person-admin'",String.class);
+  db.history(db.read("order-6"),"演示管理员","演示处理记录",engine.now());
+  java.nio.file.Files.writeString(temp.resolve("known.txt"),"NEOMS 虚构演示票据记录");
+  db.jdbc().update("INSERT INTO neoms_files VALUES('migration-file','演示票据终结记录.txt','text/plain','known.txt')");
+  LabelMigration.run(db,temp);
+  assertEquals("检修任务",db.read("order-6").get("name"));assertEquals(order.get("status"),db.read("order-6").get("status"));assertEquals(order.get("ticketIds"),db.read("order-6").get("ticketIds"));
+  assertEquals("管理员",db.jdbc().queryForObject("SELECT display_name FROM neoms_users WHERE id='person-admin'",String.class));assertEquals(password,db.jdbc().queryForObject("SELECT password_hash FROM neoms_users WHERE id='person-admin'",String.class));
+  assertFalse(db.history("order-6").getFirst().get("snapshot").toString().contains("演示"));assertFalse(java.nio.file.Files.readString(temp.resolve("known.txt")).contains("演示"));
+  int revision=((Number)db.read("order-6").get("_revision")).intValue();LabelMigration.run(db,temp);assertEquals(revision,db.read("order-6").get("_revision"));
+ }
  @Test void materialAmountAndPauseKeepDeadline(){
   var before=db.read("order-6");String due=s(before,"dueAt");act("order-6","pause",m("reason","待备件"));assertEquals(due,s(db.read("order-6"),"dueAt"));
   var d=act("order-6","material",m("name","风扇","code","F1","unit","台","date","2026-11-02","quantity",2,"price",123.45));

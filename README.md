@@ -13,7 +13,7 @@ Java 21 / Spring Boot / MySQL / Vue 3 / Element Plus 初始演示版本。按原
 
 | 登录名 | 示例人员 | 业务视角 |
 |---|---|---|
-| admin | 演示管理员 | 总览与演示控制 |
+| admin | 管理员 | 总览与演示控制 |
 | dispatch | 周宁 | 调度研判、派发 |
 | field | 李明 | 现场处置、负责人确认 |
 | signer | 王磊 | 工作签发 |
@@ -40,14 +40,14 @@ Java 21 / Spring Boot / MySQL / Vue 3 / Element Plus 初始演示版本。按原
 # Maven 不在 PATH 时：./build.ps1 -Maven 'C:/tools/apache-maven/bin/mvn.cmd'
 ```
 
-Linux/macOS：`bash build.sh`（可用 `MAVEN=/path/to/mvn` 指定 Maven）。脚本执行 `npm ci`、前端构建、Maven 测试与打包，输出 `release/NEOMS-0.2.0` 及压缩包。为避免混入旧依赖，已有发布目录需先改名后再构建。开发时后端使用外置配置及本地数据库，前端 `cd frontend && npm run dev`，Vite 代理 `/api` 到8080。
+Linux/macOS：`bash build.sh`（可用 `MAVEN=/path/to/mvn` 指定 Maven）。脚本执行 `npm ci`、前端构建、Maven 测试与打包，输出 `release/NEOMS-0.2.1` 及压缩包。为避免混入旧依赖，已有发布目录需先改名后再构建。开发时后端使用外置配置及本地数据库，前端 `cd frontend && npm run dev`，Vite 代理 `/api` 到8080。
 
 自动化：`mvn test` 使用独立内存 H2（MySQL兼容模式），不连接本机数据库。运行中的演示环境可执行 `node scripts/smoke.mjs --reset`，该命令会重置本项目演示数据并跑真实 HTTP/MySQL 闭环，勿指向保留资料的环境。
 
 ## 发布目录与局部更新
 
 ```text
-NEOMS-0.2.0/
+NEOMS-0.2.1/
   neoms.jar                   # 业务类 + Spring Boot启动器，第三方依赖不内嵌
   lib/*.jar                   # 运行时依赖
   lib-manifest.sha256          # 外置依赖校验清单
