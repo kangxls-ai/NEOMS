@@ -7,7 +7,7 @@ server:
         same-site: lax
 spring:
   config:
-    import: optional:file:./config/application-local.yml
+    import: optional:file:${neoms.home:.}/config/application-local.yml
   application:
     name: neoms
   datasource:
@@ -22,12 +22,12 @@ spring:
       max-request-size: 10MB
   web:
     resources:
-      static-locations: file:./config/static/
+      static-locations: file:${neoms.home:.}/config/static/
       cache:
         period: 0
 logging:
   file:
-    name: ./logs/neoms.log
+    name: ${neoms.home:.}/logs/neoms.log
 neoms:
   demo-enabled: true
-  upload-dir: ./data/uploads
+  upload-dir: ${neoms.home:.}/data/uploads

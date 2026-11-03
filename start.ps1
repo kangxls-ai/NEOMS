@@ -7,9 +7,7 @@ if (!(Test-Path -LiteralPath './lib')) { throw 'External lib directory missing.'
 $version = (& $java -version 2>&1 | Out-String)
 if ($version -notmatch 'version "(\d+)' -or [int]$Matches[1] -lt 21) { throw 'Java 21 or later is required.' }
 New-Item -ItemType Directory -Force logs,data | Out-Null
-# Use a short real Windows directory for the JDK internal NIO socket path.
-$tempDir = if ($env:NEOMS_JAVA_TMP) { $env:NEOMS_JAVA_TMP } else { (Join-Path $env:SystemRoot 'Temp').Replace('\','/') }
-$argsList = @("`"-Djdk.net.unixdomain.tmpdir=$tempDir`"",'"-Dloader.config.location=file:./config/loader.properties"','-jar','neoms.jar')
+$argsList = @('-jar','neoms.jar')
 if ($Background) {
   if (Test-Path './neoms.pid') { throw 'PID file exists. Check the running instance before starting again.' }
   $proc = Start-Process -FilePath $java -ArgumentList $argsList -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -RedirectStandardOutput './logs/console.log' -RedirectStandardError './logs/console-error.log' -PassThru
@@ -25,6 +23,6 @@ if ($Background) {
   if($ready){Write-Host "NEOMS ready (PID $($proc.Id)): http://localhost:$port"}else{Write-Host "NEOMS process started (PID $($proc.Id)). Check configured port and logs/neoms.log."}
 } else {
   Write-Host 'NEOMS: http://localhost:8080 ; Ctrl+C to stop.'
-  & $java "-Djdk.net.unixdomain.tmpdir=$tempDir" '-Dloader.config.location=file:./config/loader.properties' -jar neoms.jar
+  & $java -jar neoms.jar
   exit $LASTEXITCODE
 }

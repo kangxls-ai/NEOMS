@@ -6,7 +6,7 @@ Java 21 / Spring Boot / MySQL / Vue 3 / Element Plus 初始演示版本。按原
 
 1. 安装 Java 21、MySQL 8，创建独立库 `neoms_demo`（utf8mb4），为应用账号授予该库读写和建表权限。
 2. 将 `config/application-local.example.yml` 复制为 `config/application-local.yml`，填写本机数据库账号密码。地址不同可在该文件配置 `spring.datasource.url`。真实配置不进入 Git。
-3. Windows：双击 `start.cmd`，或运行 `powershell -File start.ps1 -Background`。Linux：`bash start.sh`。macOS：`bash start-macos.command`；需双击时先执行 `chmod +x start-macos.command start.sh`。
+3. Windows、Linux、macOS 均直接运行：`java -jar neoms.jar`。也可使用附带的启动脚本进行前台或后台启动。
 4. 访问 **http://localhost:8080**。首次启动自动建表并装载虚构数据。后台启动 Windows 用 `stop.ps1`，Linux/macOS 用 `bash stop.sh`；前台用 Ctrl+C。
 
 可用环境变量：`NEOMS_DB_URL`、`NEOMS_DB_USER`、`NEOMS_DB_PASSWORD`、`NEOMS_PORT`。示例账号为应用登录账号，与数据库账号不同。
@@ -40,20 +40,19 @@ Java 21 / Spring Boot / MySQL / Vue 3 / Element Plus 初始演示版本。按原
 # Maven 不在 PATH 时：./build.ps1 -Maven 'C:/tools/apache-maven/bin/mvn.cmd'
 ```
 
-Linux/macOS：`bash build.sh`（可用 `MAVEN=/path/to/mvn` 指定 Maven）。脚本执行 `npm ci`、前端构建、Maven 测试与打包，输出 `release/NEOMS-0.2.1` 及压缩包。为避免混入旧依赖，已有发布目录需先改名后再构建。开发时后端使用外置配置及本地数据库，前端 `cd frontend && npm run dev`，Vite 代理 `/api` 到8080。
+Linux/macOS：`bash build.sh`（可用 `MAVEN=/path/to/mvn` 指定 Maven）。脚本执行 `npm ci`、前端构建、Maven 测试与打包，输出 `release/NEOMS-0.2.2` 及压缩包。为避免混入旧依赖，已有发布目录需先改名后再构建。开发时后端使用外置配置及本地数据库，前端 `cd frontend && npm run dev`，Vite 代理 `/api` 到8080。
 
 自动化：`mvn test` 使用独立内存 H2（MySQL兼容模式），不连接本机数据库。运行中的演示环境可执行 `node scripts/smoke.mjs --reset`，该命令会重置本项目演示数据并跑真实 HTTP/MySQL 闭环，勿指向保留资料的环境。
 
 ## 发布目录与局部更新
 
 ```text
-NEOMS-0.2.1/
-  neoms.jar                   # 业务类 + Spring Boot启动器，第三方依赖不内嵌
+NEOMS-0.2.2/
+  neoms.jar                   # 可执行业务JAR，Manifest自动引用lib下依赖
   lib/*.jar                   # 运行时依赖
   lib-manifest.sha256          # 外置依赖校验清单
   config/application.yml      # Spring Boot外置配置
   config/application-local.yml # 本地连接信息，自行创建，不进Git/通用发布包
-  config/loader.properties    # loader.path=lib/
   config/static/              # Vue生产构建
   data/uploads/               # 运行后生成附件，更新时保留
   logs/                       # 运行日志
@@ -62,7 +61,7 @@ NEOMS-0.2.1/
   docs/
 ```
 
-`PropertiesLauncher` 从外置 `lib` 加载依赖。只改业务代码时停服务、备份并替换 `neoms.jar`、再启动；前端改动替换 `config/static`；依赖变化按清单替换对应 JAR 并移走同库旧版本，避免重复版本。保持 `config/application-local.yml`、MySQL数据、`data/uploads` 不被覆盖。具体见 [部署更新说明](docs/部署更新说明.md)。
+JAR 的 `MANIFEST.MF` 自动加载外置 `lib` 中的依赖，应用自动读取 JAR 同目录的 `config`，不需要 `-Dloader.*`、`-cp` 或配置路径参数。从其他目录运行 `java -jar /完整路径/neoms.jar` 也使用 JAR 旁的配置、前端、日志及附件目录。只改业务代码时停服务、备份并替换 `neoms.jar`、再启动；前端改动替换 `config/static`；依赖变化按清单补充或替换对应 JAR，并同步新业务包中的依赖清单。保持 `config/application-local.yml`、MySQL数据、`data/uploads` 不被覆盖。具体见 [部署更新说明](docs/部署更新说明.md)。
 
 ## 初始版本边界
 
