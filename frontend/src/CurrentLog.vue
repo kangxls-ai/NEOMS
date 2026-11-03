@@ -201,8 +201,14 @@ async function saveHandover() {
 
 <template>
   <div class="current-log-page">
-    <header class="current-log-toolbar">
-      <div class="current-log-domain">集中式运维 <span>⇄</span></div>
+    <div class="page-heading">
+      <div><h1>{{ initialShiftId ? "值班日志" : "当前日志" }}</h1><p>查看班次运行情况，记录值班事项与交接内容。</p></div>
+      <div class="inline-actions">
+        <el-button :disabled="!shift || (!isActive && !hasEnded)" @click="openHandover">班后交代</el-button>
+        <el-button type="primary" :disabled="!isActive" @click="note = ''; noteDialog = true">值班记事</el-button>
+      </div>
+    </div>
+    <header class="panel current-log-toolbar">
       <div class="current-log-filters">
         <label
           ><span>场站</span
@@ -246,24 +252,9 @@ async function saveHandover() {
           ></label
         >
       </div>
-      <div class="current-log-buttons">
-        <el-button
-          :disabled="!shift || (!isActive && !hasEnded)"
-          @click="openHandover"
-          >班后交代</el-button
-        ><el-button
-          type="primary"
-          :disabled="!isActive"
-          @click="
-            note = '';
-            noteDialog = true;
-          "
-          >值班记事</el-button
-        >
-      </div>
     </header>
     <div class="current-log-body" v-loading="loading">
-      <section class="current-log-section current-log-duty">
+      <section class="panel current-log-section current-log-duty">
         <h2>值班信息</h2>
         <div class="current-log-info">
           <div>
@@ -287,7 +278,7 @@ async function saveHandover() {
           </div>
         </div>
       </section>
-      <section class="current-log-section current-log-before">
+      <section class="panel current-log-section current-log-before">
         <h2>班前交代</h2>
         <p v-if="previous?.handover" class="current-log-handover-text">
           {{ previous.handover }}
@@ -302,12 +293,11 @@ async function saveHandover() {
           }}
         </p>
       </section>
-      <section class="current-log-section current-log-events">
+      <section class="panel current-log-section current-log-events">
         <h2>值班情况</h2>
         <div class="current-log-table-wrap">
           <el-table
             :data="events"
-            border
             height="220"
             empty-text="本班暂无值班记录"
             @row-dblclick="viewEvent"
@@ -340,12 +330,11 @@ async function saveHandover() {
           </el-table>
         </div>
       </section>
-      <section class="current-log-section current-log-defects">
+      <section class="panel current-log-section current-log-defects">
         <h2>缺陷记录</h2>
         <div class="current-log-table-wrap">
           <el-table
             :data="defects"
-            border
             max-height="300"
             empty-text="本班暂无新增缺陷"
             @row-dblclick="(r) => emit('view', r.id)"
@@ -363,7 +352,7 @@ async function saveHandover() {
               ><template #default="{ row }"
                 ><el-button
                   link
-                  class="current-log-defect-code"
+                  class="current-log-defect-code" type="primary"
                   @click="emit('view', row.id)"
                   >{{ row.code }}</el-button
                 ></template
@@ -486,269 +475,29 @@ async function saveHandover() {
 </template>
 
 <style>
-.main.prototype-log-main {
-  padding: 59px 0 0 !important;
-  background: #fff;
+.current-log-toolbar { margin-bottom: 20px; }
+.current-log-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 20px 28px; }
+.current-log-filters > label { display: flex; gap: 12px; align-items: center; }
+.current-log-filters > label > span { color: #707b8e; font-size: 13px; white-space: nowrap; }
+.current-log-filters .el-select, .current-log-filters .el-date-editor { width: 210px; }
+.current-log-section h2 { font-size: 15px; font-weight: 600; color: #3c4b63; margin: 0 0 20px; }
+.current-log-info { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px 28px; }
+.current-log-info > div { display: flex; gap: 12px; line-height: 24px; min-width: 0; }
+.current-log-info label { color: #788395; font-size: 13px; white-space: nowrap; flex: 0 0 90px; }
+.current-log-info span { overflow-wrap: anywhere; }
+.current-log-handover-text { white-space: pre-wrap; line-height: 1.9; margin: 0; }
+.current-log-no-handover { color: #929daf; font-size: 13px; margin: 0; }
+.current-log-shift-option { float: right; color: #99a2b0; margin-left: 14px; }
+.current-log-dialog-tip { color: #8b94a4; font-size: 13px; }
+@media(max-width:1100px) {
+  .current-log-info { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .current-log-filters { gap: 16px; }
+  .current-log-filters .el-select, .current-log-filters .el-date-editor { width: 180px; }
 }
-.prototype-log-main > .breadcrumb,
-.prototype-log-main > footer {
-  display: none;
-}
-.current-log-page {
-  height: calc(100vh - 59px);
-  display: flex;
-  flex-direction: column;
-  color: #333;
-  background: #fff;
-  font-size: 14px;
-  --el-color-primary: #488bff;
-  --el-border-radius-base: 3px;
-}
-.current-log-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 28px;
-  min-height: 102px;
-  flex-shrink: 0;
-  border-bottom: 10px solid #eef0f3;
-  background: #fff;
-}
-.current-log-domain {
-  display: flex;
-  gap: 5px;
-  align-items: center;
-  justify-content: center;
-  align-self: stretch;
-  flex: 0 0 150px;
-  border-right: 1px solid #d0d0d0;
-  color: #737373;
-  font-size: 18px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.current-log-domain span {
-  font-size: 17px;
-}
-.current-log-filters {
-  display: flex;
-  flex: 1;
-  justify-content: space-around;
-  gap: 24px;
-}
-.current-log-filters > label {
-  display: flex;
-  gap: 14px;
-  align-items: center;
-  min-width: 0;
-}
-.current-log-filters > label > span {
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.current-log-filters .el-select,
-.current-log-filters .el-date-editor {
-  width: 188px;
-  height: 40px;
-}
-.current-log-filters .el-input__wrapper,
-.current-log-filters .el-select__wrapper {
-  min-height: 40px;
-  box-shadow: 0 0 0 1px #d5d9e2 inset;
-}
-.current-log-buttons {
-  display: flex;
-  gap: 22px;
-  padding-right: 38px;
-  flex-shrink: 0;
-}
-.current-log-buttons .el-button {
-  height: 44px;
-  padding: 0 24px;
-  font-size: 14px;
-  margin: 0;
-}
-.current-log-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 25px 28px 30px;
-  scrollbar-color: #bebebe #f5f5f5;
-  scrollbar-width: thin;
-}
-.current-log-section {
-  margin: 0 0 20px;
-}
-.current-log-section h2 {
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 22px;
-  border-left: 6px solid #4b80ff;
-  padding-left: 11px;
-  margin: 0 0 26px;
-  color: #303030;
-}
-.current-log-info {
-  display: grid;
-  grid-template-columns: 1.1fr 1fr 1fr 1.1fr 1.2fr;
-  row-gap: 29px;
-  padding: 0 24px 13px 30px;
-}
-.current-log-info > div {
-  display: flex;
-  align-items: flex-start;
-  gap: 24px;
-  line-height: 24px;
-  min-width: 0;
-}
-.current-log-info label {
-  white-space: nowrap;
-  flex: 0 0 72px;
-  font-weight: 400;
-}
-.current-log-info span {
-  overflow-wrap: anywhere;
-}
-.current-log-info > div:nth-child(4) label,
-.current-log-info > div:nth-child(5) label {
-  flex-basis: 90px;
-}
-.current-log-info .current-log-time {
-  grid-column: 1/-1;
-}
-.current-log-before {
-  min-height: 145px;
-  margin-bottom: 19px;
-}
-.current-log-before h2 {
-  margin-bottom: 16px;
-}
-.current-log-handover-text {
-  white-space: pre-wrap;
-  line-height: 21px;
-  margin: 0;
-  padding: 0 16px;
-  font-size: 14px;
-}
-.current-log-no-handover {
-  margin: 0;
-  padding: 0 16px;
-  color: #8f8f8f;
-  font-size: 14px;
-}
-.current-log-events h2 {
-  margin-bottom: 14px;
-}
-.current-log-table-wrap {
-  padding-left: 18px;
-}
-.current-log-page .el-table {
-  font-size: 13px;
-  --el-table-border-color: #818181;
-  --el-table-header-bg-color: #f0f0f0;
-  --el-table-header-text-color: #333;
-  --el-table-text-color: #333;
-  --el-table-row-hover-bg-color: #f7faff;
-}
-.current-log-page .el-table th.el-table__cell {
-  height: 40px;
-  font-weight: 400;
-  padding: 8px 0;
-}
-.current-log-page .el-table td.el-table__cell {
-  height: 40px;
-  padding: 7px 0;
-}
-.current-log-page .el-table .cell {
-  line-height: 24px;
-}
-.current-log-page .el-table .el-button {
-  font-size: 13px;
-}
-.current-log-page .el-table__inner-wrapper:before {
-  background: #818181;
-}
-.current-log-defects {
-  margin-top: 23px;
-}
-.current-log-defects h2 {
-  margin-bottom: 48px;
-}
-.current-log-defect-code {
-  color: #333 !important;
-}
-.current-log-shift-option {
-  float: right;
-  color: #999;
-  margin-left: 14px;
-}
-.current-log-dialog-tip {
-  color: #8b94a4;
-  font-size: 13px;
-}
-@media (max-width: 1450px) {
-  .current-log-toolbar {
-    gap: 18px;
-  }
-  .current-log-domain {
-    flex-basis: 130px;
-    font-size: 16px;
-  }
-  .current-log-filters {
-    gap: 18px;
-    justify-content: space-between;
-  }
-  .current-log-filters .el-select,
-  .current-log-filters .el-date-editor {
-    width: 150px;
-  }
-  .current-log-buttons {
-    gap: 12px;
-    padding-right: 22px;
-  }
-  .current-log-buttons .el-button {
-    padding: 0 16px;
-  }
-  .current-log-info {
-    gap: 24px 14px;
-    padding-left: 20px;
-    padding-right: 10px;
-    grid-template-columns: 1.1fr 1fr 0.8fr 1.15fr 1.15fr;
-  }
-  .current-log-info > div {
-    gap: 10px;
-  }
-  .current-log-info label {
-    flex-basis: 46px;
-  }
-  .current-log-info > div:nth-child(4) label,
-  .current-log-info > div:nth-child(5) label {
-    flex-basis: 78px;
-  }
-}
-@media (max-width: 1100px) {
-  .current-log-toolbar {
-    flex-wrap: wrap;
-    padding: 15px 18px;
-    gap: 15px;
-    min-height: 102px;
-  }
-  .current-log-domain {
-    border: 0;
-    flex-basis: auto;
-  }
-  .current-log-filters {
-    order: 3;
-    flex-basis: 100%;
-  }
-  .current-log-buttons {
-    margin-left: auto;
-    padding: 0;
-  }
-  .current-log-info {
-    grid-template-columns: repeat(3, 1fr);
-  }
-  .current-log-page {
-    height: calc(100vh - 59px);
-  }
+@media(max-width:700px) {
+  .current-log-page .page-heading { align-items: flex-start; flex-wrap: wrap; }
+  .current-log-info { grid-template-columns: 1fr; }
+  .current-log-filters > label { width: 100%; }
+  .current-log-filters .el-select, .current-log-filters .el-date-editor { flex: 1; width: auto; }
 }
 </style>

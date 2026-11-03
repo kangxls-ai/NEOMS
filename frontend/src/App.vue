@@ -1167,14 +1167,7 @@ onMounted(async () => {
       >
       <div class="sidebar-bottom"><i></i> 系统运行正常</div>
     </aside>
-    <main
-      class="main"
-      :class="{
-        'prototype-log-main':
-          page === 'currentLog' ||
-          (page === 'logs' && current?.kind === 'shifts'),
-      }"
-    >
+    <main class="main">
       <div class="breadcrumb">
         <el-select
           v-model="businessDomain"
